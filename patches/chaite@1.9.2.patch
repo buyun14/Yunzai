@@ -1,0 +1,89 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index f2072a9092b9f0ba28bdf2882bf09847a86f218c..2ef13845d5370a8d0a2d4af1035a9087e4ef1ae9 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -167,27 +167,44 @@ const DefaultLogger = new class DefaultLogger$1 {
+ 	constructor(name = "Chaite", enableColors = true) {
+ 		this.name = name;
+ 		this.enableColors = enableColors;
+ 	}
++	shouldLog(level) {
++		const envLevel = (process?.env?.CHAITE_LOG_LEVEL || "warn").toLowerCase();
++		const weights = {
++			debug: 10,
++			info: 20,
++			warn: 30,
++			error: 40,
++			off: 99
++		};
++		const current = weights[envLevel] ?? weights.warn;
++		const target = weights[level.toLowerCase()] ?? weights.info;
++		return target >= current;
++	}
+ 	formatDate() {
+ 		const now = /* @__PURE__ */ new Date();
+ 		return `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}.${now.getMilliseconds().toString().padStart(3, "0")}`;
+ 	}
+ 	formatMessage(level, msg, args) {
+ 		const prefix = `[${this.name}][${this.formatDate()}][${level}]`;
+ 		const formattedMsg = typeof msg === "string" ? msg : JSON.stringify(msg, null, 2);
+ 		if (this.enableColors) return `${DefaultLogger$1.COLORS[level.toLowerCase()] || ""}${prefix}${DefaultLogger$1.COLORS.reset} ${formattedMsg}`;
+ 		return `${prefix} ${formattedMsg}`;
+ 	}
+ 	debug(msg, ...args) {
++		if (!this.shouldLog("debug")) return;
+ 		console.log(this.formatMessage("DEBUG", msg, args), ...args);
+ 	}
+ 	error(msg, ...args) {
++		if (!this.shouldLog("error")) return;
+ 		console.log(this.formatMessage("ERROR", msg, args), ...args);
+ 	}
+ 	info(msg, ...args) {
++		if (!this.shouldLog("info")) return;
+ 		console.log(this.formatMessage("INFO", msg, args), ...args);
+ 	}
+ 	warn(msg, ...args) {
++		if (!this.shouldLog("warn")) return;
+ 		console.log(this.formatMessage("WARN", msg, args), ...args);
+ 	}
+ }();
+@@ -1522,8 +1542,8 @@ var ExecutableShareableManager = class {
+ 			} catch (error) {
+ 				getLogger().error(`Error loading ${this.type} from file '${file}':`, error);
+ 			}
+ 			this.instanceMap = newInstanceMap;
+-			getLogger().info(`Scanned ${this.instanceMap.size} ${this.type}: [${[...this.instanceMap.keys()].join(", ")}]`);
++			getLogger().debug(`Scanned ${this.instanceMap.size} ${this.type}: [${[...this.instanceMap.keys()].join(", ")}]`);
+ 		} catch (error) {
+ 			getLogger().error(`Error scanning ${this.type} directory:`, error);
+ 		}
+@@ -2300,8 +2320,8 @@ var TriggerManager = class {
+ 			} catch (error) {
+ 				if (error instanceof Error) getLogger().error(`Error loading trigger from file '${file}':`, error.message);
+ 			}
+ 			this.instanceMap = newInstanceMap;
+-			getLogger().info(`Scanned ${this.instanceMap.size} triggers: [${[...this.instanceMap.keys()].join(", ")}]`);
++			getLogger().debug(`Scanned ${this.instanceMap.size} triggers: [${[...this.instanceMap.keys()].join(", ")}]`);
+ 		} catch (error) {
+ 			if (error instanceof Error) getLogger().error("Error scanning trigger directory:", error.message);
+ 			else getLogger().error("Error scanning trigger directory:", error);
+@@ -3005,9 +3025,19 @@ registerFromChaiteConverter("openai", (source) => {
+ 				type: "text",
+ 				text: ""
+ 			}).text;
++			const reasoning = msg.content.map((t) => t).filter((t) => t.type === "reasoning" && t.text).reduce((acc, cur) => {
++				return {
++					type: "reasoning",
++					text: acc.text + cur.text
++				};
++			}, {
++				type: "reasoning",
++				text: ""
++			}).text;
+ 			return {
+ 				role: "assistant",
+ 				content: text ? text : void 0,
++				reasoning_content: reasoning ? reasoning : void 0,
+ 				tool_calls: msg.toolCalls && msg.toolCalls?.length > 0 ? msg.toolCalls?.map((t) => {
+ 					return {
+ 						id: t.id,
