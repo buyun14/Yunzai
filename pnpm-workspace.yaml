@@ -18,6 +18,7 @@ allowBuilds:
   '@parcel/watcher': false
   better-sqlite3: true
   esbuild: true
+  tesseract.js: set this to true or false
 onlyBuiltDependencies:
   - classic-level
   - log4js
