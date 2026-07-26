@@ -52,10 +52,17 @@ Bot.adapter.push(
       return file
     }
 
-    async makeMsg(msg) {
+    /**
+     * @param msg 消息
+     * @param splitFile 是否将 file 段剥离到 files 由专用上传 API 发送
+     *   send_msg 需要剥离（部分协议端不再自动路由 file 段），
+     *   合并转发节点必须保留在 content 内，节点没有可用的上传 API
+     */
+    async makeMsg(msg, splitFile = true) {
       if (!Array.isArray(msg)) msg = [msg]
       const msgs = []
       const forward = []
+      const files = []
       for (let i of msg) {
         if (typeof i !== "object") i = { type: "text", data: { text: i } }
         else if (!i.data) i = { type: i.type, data: { ...i, type: undefined } }
@@ -72,6 +79,12 @@ Bot.adapter.push(
           case "node":
             forward.push(...i.data)
             continue
+          case "file":
+            if (splitFile) {
+              files.push({ file: i.data.file, name: i.data.name || path.basename(i.data.file) })
+              continue
+            }
+            break
           case "raw":
             i = i.data
             break
@@ -81,17 +94,21 @@ Bot.adapter.push(
 
         msgs.push(i)
       }
-      return [msgs, forward]
+      return [msgs, forward, files]
     }
 
-    async sendMsg(msg, send, sendForwardMsg) {
-      const [message, forward] = await this.makeMsg(msg)
+    async sendMsg(msg, send, sendForwardMsg, sendFile) {
+      const [message, forward, files] = await this.makeMsg(msg, Boolean(sendFile))
       const ret = []
 
       if (forward.length) {
         const data = await sendForwardMsg(forward)
         if (Array.isArray(data)) ret.push(...data)
         else ret.push(data)
+      }
+
+      if (sendFile) {
+        for (const { file, name } of files) ret.push(await sendFile(file, name))
       }
 
       if (message.length) ret.push(await send(message))
@@ -228,7 +245,8 @@ Bot.adapter.push(
     async makeForwardMsg(msg) {
       const msgs = []
       for (const i of msg) {
-        const [content, forward] = await this.makeMsg(i.message)
+        /** 转发节点内保留 file 段，剥离会导致整段文件丢失，只含文件的节点还会整条消失 */
+        const [content, forward] = await this.makeMsg(i.message, false)
         if (forward.length) msgs.push(...(await this.makeForwardMsg(forward)))
         if (content.length)
           msgs.push({
