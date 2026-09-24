@@ -9,6 +9,7 @@ import {
   createControlCapabilitiesHandler,
   createRestartHandler,
 } from "../../../lib/web/api/control.js"
+import { createPluginToggleHandler } from "../../../lib/web/api/plugin-toggle.js"
 import { createPluginsHandler } from "../../../lib/web/api/plugins.js"
 import { createApiRouter, createReadyHandler } from "../../../lib/web/api/router.js"
 import { createSchemasHandler } from "../../../lib/web/api/schemas.js"
@@ -37,6 +38,9 @@ let configDirs
 /** 写入接口专用的临时目录：PUT 会真的改文件，不能和只读取样共用 */
 let writeDirs
 
+/** 插件启停专用的临时目录（它会写 group.yaml） */
+let pluginToggleDirs
+
 beforeAll(async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "yz-openapi-"))
   configDirs = { configDir: path.join(root, "config"), defaultsDir: path.join(root, "defaults") }
@@ -52,10 +56,24 @@ beforeAll(async () => {
   }
   await fs.mkdir(writeDirs.configDir, { recursive: true })
   await fs.writeFile(path.join(writeDirs.configDir, "bot.yaml"), "log_level: info\n", "utf8")
+
+  const toggleRoot = await fs.mkdtemp(path.join(os.tmpdir(), "yz-openapi-toggle-"))
+  pluginToggleDirs = {
+    configDir: path.join(toggleRoot, "config"),
+    backupDir: path.join(toggleRoot, "backups"),
+    // 取样时不需要真的打缓存，给个空实现
+    cfgRef: { reload: () => {} },
+  }
+  await fs.mkdir(pluginToggleDirs.configDir, { recursive: true })
+  await fs.writeFile(
+    path.join(pluginToggleDirs.configDir, "group.yaml"),
+    "default:\n  disable:\n    - 已停用的\n",
+    "utf8",
+  )
 })
 
 afterAll(async () => {
-  for (const dir of [configDirs?.configDir, writeDirs?.configDir])
+  for (const dir of [configDirs?.configDir, writeDirs?.configDir, pluginToggleDirs?.configDir])
     if (dir) await fs.rm(path.dirname(dir), { recursive: true, force: true })
 })
 
@@ -211,6 +229,13 @@ function samplers() {
         query: {},
         socket: { remoteAddress: "127.0.0.1" },
       }),
+    // 插件启停。写的是 group.yaml 的 default.disable，所以给它独立的临时目录
+    "/api/v1/plugins/{name}": () =>
+      bodyOf(createPluginToggleHandler(pluginToggleDirs), {
+        params: { name: "被停用的" },
+        query: {},
+        body: { enabled: false },
+      }),
   }
 }
 
@@ -265,7 +290,9 @@ describe("契约与路由一致", () => {
     expect(routesOf(createApiRouter())).toEqual({
       "/ready": ["get"],
       "/status": ["get"],
+      // 同路径两个方法：GET 列插件、PUT 启停
       "/plugins": ["get"],
+      "/plugins/:name": ["put"],
       "/config": ["get"],
       // ⚠️ 顺序有意义：`/config/schemas` 必须排在 `/config/:name` 之前，
       // 否则 `schemas` 会被当成文件名匹配进 `:name`（实证见 06-webui.md §4）。
@@ -299,8 +326,10 @@ describe("契约与响应体一致", () => {
     const spec = await readSpec()
 
     for (const [routePath, sample] of Object.entries(samplers())) {
-      // `#put` 的取样归 PUT 那条用例管（响应体 schema 不同）
+      // 只核**有 get 操作**的路径：写操作（`#put` / `#post` / `PUT /plugins/{name}`）
+      // 的响应体 schema 不同，各自有专门的用例
       if (routePath.includes("#")) continue
+      if (!spec.paths[routePath]?.get) continue
       const schema = spec.paths[routePath].get.responses["200"].content["application/json"].schema
       const properties = spec.components.schemas[schema.$ref.split("/").pop()].properties
       const body = await sample()
@@ -321,6 +350,17 @@ describe("契约与响应体一致", () => {
 
     const body = await samplers()["/api/v1/config/{name}#put"]()
     const properties = spec.components.schemas.ConfigWriteResult.properties
+    expect(Object.keys(body).sort()).toEqual(Object.keys(properties).sort())
+  })
+
+  it("插件启停接口的 200 响应体与 PluginToggleResult 一致", async () => {
+    const spec = await readSpec()
+    const schema =
+      spec.paths["/api/v1/plugins/{name}"].put.responses["200"].content["application/json"].schema
+    expect(schema.$ref).toBe("#/components/schemas/PluginToggleResult")
+
+    const body = await samplers()["/api/v1/plugins/{name}"]()
+    const properties = spec.components.schemas.PluginToggleResult.properties
     expect(Object.keys(body).sort()).toEqual(Object.keys(properties).sort())
   })
 

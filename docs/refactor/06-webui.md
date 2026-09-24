@@ -227,6 +227,60 @@
 >
 > 未做的：`stop` 只做了单元测试，**没有在真机上按过**——按下去服务就没了，
 > 需要人工用宝塔/pm2 重新拉起。这是刻意的。
+>
+> ### v3 第二块：插件启停（2026-09-24）
+>
+> `PUT /api/v1/plugins/{name}` + 插件列表每行的开关。登记为 **BCR-0006**。
+>
+> #### 机制：写的是**群配置的 `default.disable`**，不是某个开关文件
+>
+> 内核判定插件是否生效看的是 `groupCfg.disable.includes(plugin.name)`
+> （`lib/plugins/loader.js`），而 `groupCfg` 来自 `cfg.getGroup()`——
+> 它把 `group.yaml` 的 `default` 与各群段叠起来。所以"全局停用某插件"
+> = 把它写进 `default.disable`（`default` 在最外层，没有群段覆盖时对所有群生效）。
+>
+> **不是** `plugin.json` 里的字段，也没有"插件级开关"这种东西——这一条
+> 一开始我判断错了，看代码才纠正过来。
+>
+> #### 为什么写完能立刻生效（不需要重启）
+>
+> 每次消息进来都会重算生效范围，所以只要**缓存是新的**就立刻生效。而
+> `lib/config/config.js` 的 `getYaml()` 有解析缓存、`watch()` 的失效又是 **5 秒防抖**
+> ——刚写完读到的还是旧值。因此 `lib/config/config.js` 新增了一个
+> `reload(name)` 把缓存打掉（只增不改，见 BCR-0006）。
+>
+> #### 两个必须说清的边界（界面上直接显示后端那句 `note`）
+>
+> 1. 按**插件名**匹配，不是文件路径；
+> 2. 单独给某个群配了 `enable` 的会**盖过**全局停用。
+>
+> 所以 `enabled: true` 只表示"没在全局停用名单里"，不等于"每个群都真的生效"。
+> 界面不去承诺做不到的事。
+>
+> #### 真机验证
+>
+> ```
+> PUT /plugins/发送日志 {"enabled":false}
+>   → 200 {"enabled":false,"disableList":["禁用示例","支持多个","发送日志"],
+>           "backup":"config\\backups\\pre-write-…-group.yaml","restartRequired":false}
+>   重新 GET /api/v1/plugins → enabled 变成 false
+>   再 PUT {"enabled":true} → disableList 回到 ["禁用示例","支持多个"]
+>   group.yaml 的注释与其它键原样保留；验证产生的备份已清理
+> ```
+>
+> #### 顺手修掉一个**之前就存在、但没人看见**的渲染 bug
+>
+> 插件列表的展开箭头变成了一个占满整行的巨大箭头（截图里一眼就能看到）。
+> 根因是自写的 `MdiSvgIcon` 只给了 `viewBox`、**没给尺寸**：`viewBox` 定义的是
+> 坐标系而不是尺寸，没有尺寸的 `<svg>` 是替换元素，浏览器按默认 **300×150** 渲染，
+> 而父级 `.v-icon` 的 `1em` 反而被它撑开。
+>
+> 试过给 `100%`（**不对**：100% 解析回父级的 auto，等于没给），
+> 正解是用字体相对单位 `1em`——与 Vuetify 自己那套 SVG 图标一致，
+> 尺寸跟着字号走，所以 `size="small"` / `x-small` 照常生效。
+>
+> 这个 bug 之前一直存在（上一版插件页也有），是这次截图才看出来的。
+> 教训：**自写图标组件必须显式给尺寸**，而 TypeScript 与构建都不会报它。
 
 ---
 

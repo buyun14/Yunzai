@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
-import { getPlugins } from "@/api/client"
+import { ApiError, getPlugins, putPlugin } from "@/api/client"
 import type { LoadedPlugin } from "@/api/types"
 import PanelState from "@/components/PanelState.vue"
 import { useAsync } from "@/composables/useAsync"
+import { useAuthStore } from "@/stores/auth"
 
 /**
- * 插件列表。
+ * 插件列表 + 启停。
  *
- * # 两条来自后端的硬约束，界面必须照做
+ * # 三条来自后端的硬约束，界面必须照做
  *
  * 1. **顺序不许重排**。数组顺序就是**执行顺序**（按 `priority` 升序），
  *    那是排查「为什么这个插件先抢到消息」的第一手材料；
@@ -17,7 +18,12 @@ import { useAsync } from "@/composables/useAsync"
  * 2. **`priority` 可能是 `null`**，表示插件没声明，实际顺序由数组下标表达。
  *    显示成空或 `0` 都是错的（`0` 会被误读成一个真实的优先级），
  *    这里显式写成「未声明」。
+ * 3. **停用是按插件名匹配全局名单的**（`group.yaml` 的 `default.disable`）。
+ *    所以 `name` 为 `null` 的条目**无法启停**——开关要禁用并说明原因，
+ *    而不是让用户点了没反应。
  */
+const auth = useAuthStore()
+
 const { data, error, loading, refresh } = useAsync(getPlugins)
 
 const keyword = ref("")
@@ -26,6 +32,39 @@ const plugins = computed(() => data.value?.plugins ?? [])
 
 /** 展开的行（`key` 可能重复——同一文件可注册多个插件类，所以用下标当键） */
 const expanded = ref<number[]>([])
+
+/** 正在切换的插件名 */
+const toggling = ref("")
+const toggleError = ref("")
+/** 上一次切换的结果（含后端给的那句边界说明） */
+const toggleNotice = ref("")
+
+/**
+ * 切换一个插件的启停。
+ *
+ * 成功后**只刷新列表**，不乐观更新本地状态：`enabled` 是"在不在全局停用名单里"，
+ * 而名单可能因为别的群段配置与预期不同——以服务端的回答为准。
+ *
+ * @param plugin 插件条目
+ * @returns 无
+ */
+async function toggleEnabled(plugin: LoadedPlugin): Promise<void> {
+  if (!plugin.name || plugin.enabled === null) return
+  toggling.value = plugin.name
+  toggleError.value = ""
+  toggleNotice.value = ""
+  try {
+    const result = await putPlugin(plugin.name, !plugin.enabled)
+    // 后端会如实说明"更具体的群段可以盖过这条"，那句比我们自己编一句更准
+    toggleNotice.value = `${result.name} 已${result.enabled ? "启用" : "停用"}。${result.note}`
+    await refresh()
+  } catch (err) {
+    if (err instanceof ApiError && err.isUnauthorized) auth.promptForToken()
+    toggleError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    toggling.value = ""
+  }
+}
 
 const filtered = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
@@ -81,6 +120,24 @@ function displayName(plugin: LoadedPlugin): string {
     <v-alert type="info" variant="tonal" density="comfortable" class="mb-4">
       顺序就是<strong>执行顺序</strong>（按 <code>priority</code> 升序），界面不做重排；
       数据来自内存里已排好序的加载结果，不是磁盘上的 <code>plugin.json</code>。
+      <br />
+      启停写的是 <code>config/config/group.yaml</code> 的 <code>default.disable</code> 名单，按
+      <strong>插件名</strong> 匹配，<strong>写完立刻生效</strong>（不需要重启）。
+      注意：单独给某个群配了 <code>enable</code> 的会盖过这里的全局停用。
+    </v-alert>
+
+    <v-alert v-if="toggleError" type="error" variant="tonal" density="comfortable" class="mb-4">
+      {{ toggleError }}
+    </v-alert>
+    <v-alert
+      v-if="toggleNotice"
+      type="success"
+      variant="tonal"
+      density="comfortable"
+      class="mb-4"
+      data-testid="plugin-toggle-notice"
+    >
+      {{ toggleNotice }}
     </v-alert>
 
     <PanelState
@@ -100,6 +157,7 @@ function displayName(plugin: LoadedPlugin): string {
               <th style="width: 90px">priority</th>
               <th style="width: 120px">事件</th>
               <th style="width: 90px">规则</th>
+              <th style="width: 90px">启用</th>
             </tr>
           </thead>
           <tbody>
@@ -150,12 +208,39 @@ function displayName(plugin: LoadedPlugin): string {
                   <span v-if="!row.plugin.events.length" class="text-medium-emphasis">—</span>
                 </td>
                 <td>{{ row.plugin.rules.length }}</td>
+                <td @click.stop>
+                  <!-- 没有名字的条目无法按名字启停：禁用开关并说明，而不是点了没反应 -->
+                  <v-tooltip
+                    :text="
+                      row.plugin.enabled === null
+                        ? '这个条目没有名字，无法用启停接口表达'
+                        : row.plugin.enabled
+                          ? '点击停用'
+                          : '点击启用'
+                    "
+                    location="top"
+                  >
+                    <template #activator="{ props: tip }">
+                      <v-switch
+                        v-bind="tip"
+                        :data-testid="`plugin-toggle-${row.index}`"
+                        :model-value="row.plugin.enabled === true"
+                        :disabled="row.plugin.enabled === null"
+                        :loading="toggling === row.plugin.name"
+                        color="primary"
+                        density="compact"
+                        hide-details
+                        @update:model-value="toggleEnabled(row.plugin)"
+                      />
+                    </template>
+                  </v-tooltip>
+                </td>
               </tr>
 
               <!-- 展开的规则明细：正则原样显示（它就是匹配依据），不做美化 -->
               <tr v-if="expanded.includes(row.index)">
                 <td />
-                <td colspan="5" class="pa-0">
+                <td colspan="6" class="pa-0">
                   <v-table density="compact" class="bg-surface-light">
                     <thead>
                       <tr>

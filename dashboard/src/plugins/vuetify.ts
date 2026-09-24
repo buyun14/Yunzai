@@ -270,6 +270,17 @@ const MdiSvgIcon: FunctionalComponent<{ icon?: unknown; tag?: string }> = props 
         viewBox: "0 0 24 24",
         role: "img",
         "aria-hidden": "true",
+        // ⚠️ 必须显式给尺寸（踩过两次，第二次才修对）。
+        //
+        // 只给 `viewBox` 是不够的：它定义的是**坐标系**，不是尺寸。没有尺寸的
+        // `<svg>` 是替换元素，浏览器按默认 **300×150** 渲染；而父级 `.v-icon`
+        // 的尺寸是 `1em` 时，icon 反而会被这个巨大的 SVG 撑开——于是"整页都是巨大图标"。
+        //
+        // 给 `100%` 也不对（试过）：100% 解析回父级的 auto，等于没给。
+        // 正确做法是用**字体相对单位** `1em`，与 Vuetify 自己那套 SVG 图标一致：
+        // 尺寸跟着字号走，所以 `size="small"` / `x-small"` 照常生效。
+        width: "1em",
+        height: "1em",
       },
       paths.map((path, i) =>
         h(

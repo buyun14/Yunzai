@@ -24,6 +24,7 @@ import type {
   ControlCapabilities,
   LogLine,
   Plugins,
+  PluginToggleResult,
   Ready,
   Status,
 } from "./types"
@@ -182,6 +183,30 @@ export function getConfigSchemas(init?: RequestInit): Promise<ConfigSchemas> {
  */
 export function getControlCapabilities(init?: RequestInit): Promise<ControlCapabilities> {
   return getJSON<ControlCapabilities>("/control", init)
+}
+
+/**
+ * 启用 / 停用一个插件。
+ *
+ * 后端写的是 `config/config/group.yaml` 的 `default.disable` 名单——内核判定
+ * 插件是否生效看的就是它。**写完立刻生效**（返回的 `restartRequired` 恒为 false）：
+ * 每次消息进来都会重算生效范围，后端写完还会显式打掉配置解析缓存。
+ *
+ * ⚠️ 两个边界（界面上要说清，否则用户会以为"停用了就哪都不跑"）：
+ *
+ * 1. 按**插件名**匹配（不是文件路径）；
+ * 2. 单独给某个群配了 `enable` 的会**盖过**全局停用。
+ */
+export function putPlugin(
+  name: string,
+  enabled: boolean,
+  init?: RequestInit,
+): Promise<PluginToggleResult> {
+  return sendJSONRequest<PluginToggleResult>(
+    `/plugins/${encodeURIComponent(name)}`,
+    { enabled },
+    { method: "PUT", ...init },
+  )
 }
 
 /**

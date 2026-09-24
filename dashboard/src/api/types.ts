@@ -89,6 +89,29 @@ export interface LoadedPlugin {
   description: string | null
   events: string[]
   rules: PluginRule[]
+  /**
+   * 是否在全局停用名单里。
+   *
+   * `null` 表示**这个条目没有名字**（`name` 为 null），也就无法用启停接口表达
+   * ——界面应把它的开关禁用。`true` 只表示"没被全局停用"，不代表它在每个群里
+   * 都生效：更具体的群段（`enable`）可以盖过全局停用。
+   */
+  enabled: boolean | null
+}
+
+/** `PUT /api/v1/plugins/{name}` 的响应 */
+export interface PluginToggleResult {
+  name: string
+  /** 写完之后的状态 */
+  enabled: boolean
+  /** 写完之后的全局停用名单 */
+  disableList: string[]
+  /** 写前备份的路径；原文件不存在或名单没变化时为 null */
+  backup: string | null
+  /** 恒为 false——每次消息都会重算生效范围，写完立刻生效 */
+  restartRequired: false
+  /** 如实说明边界（如"更具体的群段可以盖过这条"） */
+  note: string
 }
 
 export interface Plugins {

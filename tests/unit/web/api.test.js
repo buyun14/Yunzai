@@ -168,10 +168,39 @@ describe("GET /plugins", () => {
       description: "#状态",
       events: ["message"],
       rules: [{ reg: "^#状态", fnc: "status", permission: null, log: null }],
+      // 传入的 cfgRef 没有 getGroup，读不到停用名单 → 都算启用
+      enabled: true,
     })
     // 顺序就是执行顺序，不能被排序改写
     expect(json.plugins.map(plugin => plugin.key)).toEqual(["status", "repeat"])
     expect(json.plugins[1].events).toEqual(["message.group", "message.private"])
+  })
+
+  it("按全局停用名单标出 enabled，且没有名字的条目给 null", async () => {
+    const loader = {
+      priority: [
+        { name: "活着的", key: "a", plugin: { rule: [] } },
+        { name: "被停用的", key: "b", plugin: { rule: [] } },
+        // 没有 name 的条目无法用"按名字"的启停接口表达 → null，界面应禁用开关
+        { name: null, key: "c", plugin: { rule: [] } },
+      ],
+    }
+    const cfgRef = { getGroup: () => ({ disable: ["被停用的"] }) }
+
+    const { json } = await call(createPluginsHandler({ loader, cfgRef }), {})
+    expect(json.plugins.map(p => p.enabled)).toEqual([true, false, null])
+  })
+
+  it("停用名单读不到时不影响列表（不能让面板整体看不到插件）", async () => {
+    const loader = { priority: [{ name: "x", key: "x", plugin: { rule: [] } }] }
+    const cfgRef = {
+      getGroup: () => {
+        throw new Error("配置坏了")
+      },
+    }
+    const { status, json } = await call(createPluginsHandler({ loader, cfgRef }), {})
+    expect(status).toBe(200)
+    expect(json.plugins[0].enabled).toBe(true)
   })
 
   it("loader 缺失时返回空列表而不是抛错", async () => {

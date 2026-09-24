@@ -96,6 +96,10 @@ paths:
         面板要回答的是"现在生效的是哪些"，而插件被 `disable` 后 `plugin.json` 仍在磁盘上。
 
         数组顺序就是**执行顺序**（按 `priority` 升序），保持原样不做排序。
+
+        `enabled` 反映的是 `group.yaml` 的 `default.disable` 名单。注意它是
+        **按插件名**匹配的，且**更具体的群段可以盖过它**——所以 `enabled: true`
+        只表示"没在全局停用名单里"，不代表它在每个群里都真的生效。
       operationId: plugins
       responses:
         "200":
@@ -104,6 +108,61 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Plugins"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/plugins/{name}:
+    put:
+      tags: [状态]
+      summary: 启用 / 停用一个插件
+      description: |-
+        写的是 `config/config/group.yaml` 的 `default.disable` 名单——
+        内核判定插件是否生效看的就是它（`lib/plugins/loader.js` 的
+        `groupCfg.disable.includes(plugin.name)`），而 `default` 段对所有群生效。
+
+        ## 立刻生效，不需要重启
+        每次消息进来都会重新算一遍生效范围；接口写完会显式打掉配置解析缓存
+        （`lib/config/config.js` 的 `reload()`），所以下一次消息就按新名单走。
+
+        ## 按**插件名**匹配，且群段可以盖过
+        `disable` 匹配的是 `plugin` 构造函数里的 `name`（与 `GET` 返回的 `name` 同一个）。
+        如果某个群单独配了 `enable: [这个插件]`，那条更具体的配置会盖过全局停用——
+        接口拿不到"哪些群覆盖了它"，所以只在 `note` 里如实说明，不承诺"所有群都停了"。
+
+        ## 写盘语义
+        与配置写入接口同一套：同目录临时文件 + `rename`（原子），写前备份到
+        `config/backups/`，注释原样保留。
+      operationId: pluginToggle
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: 插件名（`GET /api/v1/plugins` 里那个 `name`）
+          schema:
+            type: string
+            examples: ["状态统计"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled:
+                  type: boolean
+                  description: true 启用（从停用名单移除）、false 停用（加入停用名单）
+      responses:
+        "200":
+          description: 结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluginToggleResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "429":
@@ -624,11 +683,11 @@ components:
 
     Plugin:
       type: object
-      required: [name, namespace, key, priority, description, events, rules]
+      required: [name, namespace, key, priority, description, events, rules, enabled]
       properties:
         name:
           type: [string, "null"]
-          description: 插件展示名
+          description: 插件展示名。**启停就是按它匹配的**（`group.yaml` 的 `disable` 名单）
         namespace:
           type: [string, "null"]
         key:
@@ -647,6 +706,39 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PluginRule"
+        enabled:
+          type: [boolean, "null"]
+          description: |-
+            是否在全局停用名单里。`null` 表示**这个条目没有名字**（`name` 为 null），
+            也就无法用启停接口表达——界面应把它的开关禁用。
+
+            注意 `true` 只表示"没被全局停用"，不代表它在每个群里都生效：
+            更具体的群段（`enable`）可以盖过全局停用。
+
+    PluginToggleResult:
+      type: object
+      required: [name, enabled, disableList, backup, restartRequired, note]
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean
+          description: 写完之后的状态
+        disableList:
+          type: array
+          description: 写完之后的全局停用名单（`group.yaml` 的 `default.disable`）
+          items:
+            type: string
+        backup:
+          type: [string, "null"]
+          description: 写前备份的路径；原文件不存在或名单没变化时为 null
+        restartRequired:
+          type: boolean
+          const: false
+          description: 恒为 false——每次消息都会重算生效范围，写完立刻生效
+        note:
+          type: string
+          description: 如实说明边界（如"更具体的群段可以盖过这条"）
 
     PluginRule:
       type: object
