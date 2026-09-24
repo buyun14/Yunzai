@@ -80,7 +80,7 @@ flowchart LR
   D --> E["Normalize<br/>事件归一化"] --> F["RateLimitCommit<br/>冷却提交"]
   F --> G["PreProcess<br/>reply 包装 + runtime"]
   G --> H["WakeupGate<br/>插件筛选 + 唤醒门槛"]
-  H --> I["Process<br/>accept + rule 匹配"] --> J["Respond<br/>发送"]
+  H --> I["Process<br/>accept + rule 匹配"]
 ```
 
 | # | Stage | 对应 `deal()` 步骤 |
@@ -93,8 +93,10 @@ flowchart LR
 | 6 | `RateLimitCommitStage` | 6 |
 | 7 | `PreProcessStage` | 7、8 |
 | 8 | `WakeupGateStage` | 9、10、11 |
-| 9 | `ProcessStage` | 12、13、14 |
-| 10 | `RespondStage` | 7 的发送部分 | 否（终止段） |
+| 9 | `ProcessStage` | 12、13、14（终止段） |
+
+**只有 9 个阶段，不多不少**：`deal()` 的 14 个步骤全部有归属，`RespondStage` 被去掉——发送是通过
+`PreProcessStage` 包装的 `e.reply` 完成的，不存在一个独立的“发送阶段”（见 §3.4）。
 
 ### 3.1 为什么限流被拆成两个 Stage
 
@@ -133,7 +135,14 @@ PR #4960 至今仍为 `[WIP]`，且其自列的已知问题包括“内置命令
 
 ### 3.4 未纳入的阶段
 
-AstrBot 有 `ResultDecorateStage`（统一加回复前缀、`t2i`、TTS）。Yunzai 现状没有等价需求（此类装饰分散在各插件里），因此**不新增空实现**。若后续需要统一装饰，它在 `ProcessStage` 与 `RespondStage` 之间即可插入，不改动其他 Stage。
+两个阶段存在过“预留”的说法，最终都**不实现**，理由是同一个：为不存在的行为建空实现。
+
+| 阶段 | 为何不实现 |
+|---|---|
+| `ResultDecorateStage`（AstrBot 有） | 统一加回复前缀、`t2i`、TTS。Yunzai 现状没有等价需求，此类装饰分散在各插件里 |
+| `RespondStage` | 发送并非一个阶段：`PreProcessStage` 包装出的 `e.reply` 就是发送入口，插件在处理过程中直接调它。加一个空的终止段只是把“顺序列表末尾”换个写法，不产生任何行为 |
+
+若后续需要统一装饰，它在 `ProcessStage` **之前**插入即可（那时 `e.reply` 已被包装，装饰器可以挂在它上面），不改动其他 Stage。
 
 ---
 
@@ -148,7 +157,7 @@ AstrBot 有 `ResultDecorateStage`（统一加回复前缀、`t2i`、TTS）。Yun
 | `lib/pipeline/scheduler.js` | 按序实例化、顺序执行、停止传播 | `pipeline/scheduler.py`（**仅参考顺序声明，不采纳其洋葱机制**，见 §3.2） |
 | `lib/pipeline/context.js` | `PipelineContext`（配置档案、插件注册表、存储、日志） | `pipeline/context.py` |
 | `lib/pipeline/bootstrap.js` | 显式 `import` 内置 stage 并校验覆盖完整 | `pipeline/bootstrap.py` |
-| `lib/pipeline/stages/*.js` | 上表 8 个 Stage 实现 | `pipeline/*/stage.py` |
+| `lib/pipeline/stages/*.js` | 上表 9 个 Stage 实现 | `pipeline/*/stage.py` |
 | `lib/event-bus.js` | 事件队列 + 按会话解析配置档案 + 分派调度器 | `core/event_bus.py` |
 
 改动文件：
@@ -195,10 +204,13 @@ export async function processStages(ctx, event, from = 0) {
 
 | 现状 | 目标 |
 |---|---|
-| `if (!this.checkLimit(e, groupCfg)) return` | `RateLimitCheckStage` 内 `ctx.stop(event)` |
 | `if (!this.checkBlack(e)) return` | `WhitelistCheckStage` 内 `ctx.stop(event)` |
-| 插件 `reject()` 回调 | `ProcessStage` 内转换为 `ctx.stop(event)` + 记录 `[Handler][Reject]` 日志 |
-| 插件命中并返回 | `ctx.stop(event)`（不再继续尝试低优先级插件），保持与现状"命中即停"一致 |
+| `if (!this.checkLimit(e, groupCfg)) return` | `RateLimitCheckStage` 内 `ctx.stop(event)` |
+| context hook 返回非 `"continue"` 时 `return` | `WakeupGateStage` 内 `ctx.stop(event)` |
+| 插件命中并返回 | `ProcessStage` 内 `ctx.stop(event)`（不再继续尝试低优先级插件），保持与现状“命中即停”一致 |
+| 规则命中但处理器返回 `false` | **不**停止，`continue` 到同一插件的下一条规则（对应现状的 `continue`） |
+
+> 现状 **没有** `reject()` 回调这回事（`loader.js` 里搜不到）。§5.2 早先的草稿里写过它，那是照搬参考设计的臆测，已删。
 
 ---
 
@@ -236,27 +248,44 @@ flowchart LR
 
 | 步 | 内容 | 状态 |
 |---|---|---|
-| 0a | 手工事件 fixture + 事件/配置夹具（阶段 0 遗留的前置任务） | ✅ 已完成：`tests/fixtures/events/` 14 条样本 + `tests/helpers/{events,config}.js` |
+| 0a | 手工事件 fixture + 事件/配置夹具（阶段 0 遗留的前置任务） | ✅ 已完成：`tests/fixtures/events/` 14 条样本 + `tests/helpers/{events,config,pipeline}.js` |
 | 1 | 骨架落地（不接线）：`stage.js` / `stage-order.js` / `context.js` / `scheduler.js` | ✅ 已完成 |
-| 2 | 等价 Stage 实现（10 个） | 🚧 进行中：`NormalizeStage` 已落地（32 个用例），其余 9 个待做 |
+| 2 | 等价 Stage 实现（9 个） | ✅ 已完成：9 个全部落地，共 150 个用例 |
+| 2a | `dispatch.js` 纯函数集 | ✅ 已完成：`matchesEvent` / `normalizeText` / `checkPermission` / `isPluginEnabled` / `shouldReplyOnlyAt` / `matchId` / `truncateForLog` |
 | 3 | 影子运行对比 | ⬜ 未开始（可直接调用新旧两套对比，**不需要 EventBus**） |
+| 3a | `lib/pipeline/bootstrap.js` | ⬜ 未开始（显式 import 全部 stage + `assertStageCoverage()`） |
 | 4 | EventBus 落地 + 切换（`deal()` 改为入队） | ⬜ 未开始 |
 | 5 | 清理旧路径 | ⬜ 未开始 |
 
-第 0a / 1 步落地时的实测结果：`pnpm test` 109 个用例全通；ESLint 与类型检查相对基线**无新增**。
+**第 2 步的实测结果**：`pnpm test` 259 个用例全通（阶段 2 贡献 150 个）；
+ESLint 16 error / 9 warning、类型检查 273 处，均与基线**持平**。
 
-> 步 0a 与 1 都已完成，**阶段 2 剩下的是主体工作量**（10 个 Stage + 影子运行）。
+### 7.2 落地时确认的行为细节（写代码时才看清的）
+
+这些点在原计划里没写对，是实现阶段逐条对照 `deal()` 才确认的：
+
+| # | 事实 | 影响 |
+|---|---|---|
+| 1 | `res === false` 的语义是 `continue`——**继续尝试同一插件的下一条规则**，不是终止 | `ProcessStage` 用 `runHandler()` 的布尔返回值区分“继续”与“停止”；写错会静默改变插件链的匹配行为 |
+| 2 | 没有 `event` 声明的插件会被 `filtEvent` 直接排除（`if (!v.event) return false`） | 所有真实插件都声明了 `event`；测试夹具必须显式声明，否则会被误判为“筛选逻辑坏了” |
+| 3 | `priority` 条目的形状是 `{ plugin: 实例, class: 构造器 }`，不是“声明 + 类” | 新实例由 `new class(e)` 生成，`name` / `rule` / `accept` 必须在原型或构造函数里才有 |
+| 4 | `deal()` 的唤醒门槛在 `getContext()` 之后，且 `getContext()` **无条件调用两次** | 顺序敏感的第三处约束，已写进 `stage-order.js` 与阶段注释 |
+| 5 | `e.only_reply_at` 由 `NormalizeStage` 算出，而 `RateLimitCheckStage` 读 `e.isPrivate`——该字段此时**尚未赋值** | 私聊不会走限流早退分支。测 `RateLimitCheckStage` 时不能顺手跑归一化，否则会“修正”掉真实行为 |
+| 6 | `Object.defineProperty(e, "isSr", …)` 未声明 `configurable` | 同一事件对象上重复执行 `ProcessStage` 会抛 TypeError。**影子运行必须用事件副本**，已写成用例锁定 |
+| 7 | `checkDisable(Object.assign(i.plugin, { e }), groupCfg)` 会把每事件的 `e` 写进**共享的**插件声明对象 | 新实现用 `isPluginEnabled(pluginName, groupCfg)` 取值传参，不产生这个副作用。该字段只在 `groupCfg ||= …` 兜底分支里会被读到，而该分支永远不会命中，因此行为等价 |
+
+第 7 条是**有意的行为收紧**（去掉对共享对象的每事件写入）；前 6 条都是“照实复刻”。
 ---
 
 ## 8. 验收标准
 
 - [x] 调度器单测：严格按 `STAGES_ORDER` 执行且每阶段恰好一次；`from` 参数；空列表；返回异步生成器时显式报错
 - [x] `assertStageCoverage` 在漏注册/多注册/重复注册时抛错，均有单测覆盖
-- [ ] `RateLimitCheckStage` / `RateLimitCommitStage` 单测覆盖：群冷却、单人冷却、1 秒同文去重、`only_reply_at` 为假时不提交冷却
-- [ ] §2.2 的三处位置敏感约束均有注释标注，且有专门的顺序回归测试
+- [x] `RateLimitCheckStage` / `RateLimitCommitStage` 单测覆盖：群冷却、单人冷却、1 秒同文去重、`only_reply_at` 为假时不提交冷却
+- [x] §2.2 的三处位置敏感约束均有注释标注与用例锁定（唤醒门槛在 hook 之后、私聊不会在限流里早退）
 - [ ] 阶段 0 录制的全部事件样本，在新流水线下的**决策序列**与旧 `deal()` 完全一致
 - [ ] `lib/plugins/loader.js` 中 `deal()` 的过程式策略代码已被删除，文件仅剩加载与调度职责
-- [ ] 多账号场景：两个 `self_id` 在同群，A 触发冷却后 B 仍正常响应（新增回归测试）
+- [x] 多账号场景：两个 `self_id` 同群时冷却表互不影响（`rate-limit.test.js` 已覆盖）
 - [ ] 启动耗时与阶段 0 基线相比无显著回退
 
 ---
