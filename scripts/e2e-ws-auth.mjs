@@ -55,9 +55,10 @@ const KEY = Buffer.from("0123456789abcdef").toString("base64")
  * 101 = 握手成功；401 = 被鉴权挡住；404 = 鉴权过了但没有这个适配器（**就是那个 bug**）。
  *
  * @param {string} pathname 路径（含查询串）
+ * @param {Record<string, string>} [extraHeaders] 额外请求头
  * @returns {Promise<number>} 状态码，连不上时返回 -1
  */
-function handshake(pathname) {
+function handshake(pathname, extraHeaders = {}) {
   return new Promise(resolve => {
     const req = http.request({
       host: target.hostname,
@@ -72,6 +73,7 @@ function handshake(pathname) {
         "User-Agent": "OneBot/11",
         "X-Self-ID": "10000",
         "X-Client-Role": "Universal",
+        ...extraHeaders,
       },
     })
     req.on("upgrade", res => {
@@ -96,14 +98,35 @@ const cases = [
     why: "空令牌必须过不去，否则鉴权形同虚设",
   },
   {
-    label: `带 ?Authorization=<token>（应握手成功）`,
+    label: "裸令牌做请求头（应握手成功）",
+    path: adapterPath,
+    headers: { Authorization: token },
+    expect: 101,
+    why: "配置里的令牌原样放在头里，这是最直接的用法",
+  },
+  {
+    label: "**`Bearer <令牌>` 做请求头（SnowLuma 实际发的，应握手成功）**",
+    path: adapterPath,
+    headers: { Authorization: `Bearer ${token}` },
+    expect: 101,
+    // 这一条是最容易漏的：SnowLuma 自动加 Bearer 前缀，而全等比较会让它
+    // 无论用头还是用查询参数都过不去，日志里只有一句"鉴权失败"
+    why: "SnowLuma 自动给 Authorization 加 `Bearer ` 前缀；不接受它就连不上",
+  },
+  {
+    label: "带 ?Authorization=<令牌>（应握手成功）",
     path: `${adapterPath}?Authorization=${encodeURIComponent(token)}`,
     expect: 101,
-    // 这一条就是这个脚本存在的理由
     why: "带对了令牌却拿不到 101，说明适配器名解析把查询串也算进去了（历史上就是这样 404 的）",
   },
   {
-    label: "带小写 ?authorization=<token>（应被拒）",
+    label: "带 ?Authorization=Bearer%20<令牌>（应握手成功）",
+    path: `${adapterPath}?Authorization=${encodeURIComponent(`Bearer ${token}`)}`,
+    expect: 101,
+    why: "查询参数里带上 Bearer 前缀同样要认",
+  },
+  {
+    label: "带小写 ?authorization=<令牌>（应被拒）",
     path: `${adapterPath}?authorization=${encodeURIComponent(token)}`,
     expect: 401,
     why: "查询参数名要与 server.auth 的键名**完全一致**，小写不匹配",
@@ -120,7 +143,7 @@ let failures = 0
 console.log(`目标：${url}`)
 console.log("")
 for (const item of cases) {
-  const code = await handshake(item.path)
+  const code = await handshake(item.path, item.headers)
   const ok = code === item.expect
   if (!ok) failures++
   const label = ok ? "  ok  " : " FAIL "

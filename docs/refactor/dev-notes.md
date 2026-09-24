@@ -278,12 +278,54 @@ pnpm e2e:ws --token <server.auth 里的值>     # 需要宿主已在跑
 
 ### SnowLuma 侧的配置
 
-反向 WS 地址要带令牌，**参数名与 `server.auth` 的键名完全一致**（大小写敏感）：
+**改完 `Bearer` 支持之后，SnowLuma 什么都不用改**——它保持原来的
+`ws://127.0.0.1:2536/OneBotv11` 就能连上（见下面 §15）。
+
+（历史上曾需要把地址写成 `ws://127.0.0.1:2536/OneBotv11?Authorization=<令牌>`；
+`Bearer` 支持落地后这条不再必要，但那条路仍然可用。）
+
+## 15. SnowLuma 连不上：它**自动给 Authorization 加 `Bearer ` 前缀**
+
+### 症状
+
+配置看起来完全正确（`server.auth` 里的令牌一字不差），但每次连上都报：
 
 ```
-ws://127.0.0.1:2536/OneBotv11?Authorization=<令牌>
+[ERRO][ws://127.0.0.1:2536/OneBotv11 <≠ …] HTTP GET 请求 Authorization 鉴权失败 {
+  headers: { …, authorization: 'Bearer c245524534adc8bf3f895140066548f1e0355df87552cfcf' }
+}
 ```
 
-代价：令牌会进访问日志（每次连上都记一次）。要避免就用请求头方式——但 OneBot
-标准实现只会发它自己那几个头，加不了自定义头，所以实际只能用查询参数。
+**关键在最后那一行**：SnowLuma 发的是 `Bearer ` + 令牌，而 `serverAuth` 是拿整个
+值做**全等**比较的：
+
+```js
+req.headers[i.toLowerCase()] === cfg.server.auth[i]
+// "Bearer c245…" !== "c245…"  → 一直失败
+```
+
+于是它**用请求头不行、用查询参数也不行**（`?Authorization=Bearer%20…` 同样不匹配），
+而日志只给一句"鉴权失败"，看起来像令牌填错了——排查方向很容易被带偏。
+
+### 修法
+
+`serverAuth` 的比对改为走 `Bot.authValueMatches()`：全等之外，额外接受标准的
+`Bearer <令牌>` 形式（scheme 大小写不敏感、允许多个空格），**`Bearer` 之后的内容
+仍须逐字相等**，所以没有削弱鉴权。
+
+反向也刻意**不**要求配置里写成 `Bearer xxx`：宿主自己发出去的 `/File/...` URL 带的是
+**裸令牌**（见 `fileToUrl`），那样自己发的 URL 又认证不了。放宽点只在前缀这一处。
+
+### 怎么验证
+
+```bash
+pnpm e2e:ws --token <server.auth 里的值>
+```
+
+七次握手，其中两条是这次的关键：`Bearer <令牌>` 做请求头、以及
+`?Authorization=Bearer%20<令牌>`。另有 `tests/unit/bot-auth.test.js` 覆盖比对本身
+（含"`Bearer s3cret extra` 不能过"这种前缀拼接的绕过尝试）。
+
+⚠️ 这类"看起来像令牌错了、其实是格式不匹配"的问题，只对着配置反复核对是查不出来的
+——必须把**请求实际带来的那个值**打出来看（这次的 `authorization:` 一行就是答案）。
 
