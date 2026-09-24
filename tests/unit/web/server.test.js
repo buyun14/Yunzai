@@ -538,8 +538,20 @@ describe("回归：既有路由不受 WebUI 影响", () => {
     app.use("/File", (req, res) => res.send("file-body"))
     app.use("/exit", (req, res) => res.send("exited"))
     webui.mount(app, { loader: { priority: [] } })
-    // 宿主的兜底跳转（run() 里最后加的那一层）
-    app.use((req, res) => res.redirect("https://git.trss.me/Yunzai"))
+    // 宿主的兜底（`lib/bot.js` 的 `run()` 里最后加的那一层）：未命中的路径 404 JSON。
+    // 这里刻意复刻它而不是用一个占位 handler——"未命中不会跳到第三方站点"
+    // 是 BCR-0003 的契约，得有测试盯着（原来的版本把 302 跳到作者仓库当预期行为）。
+    app.use((req, res) =>
+      res
+        .status(404)
+        .type("json")
+        .send(
+          JSON.stringify({
+            code: "not_found",
+            message: `没有这个路径：${req.method} ${req.originalUrl}`,
+          }),
+        ),
+    )
 
     const url = await serve(app)
     expect((await request(url, "/status")).text).toBe('{"report":true}')
@@ -551,7 +563,10 @@ describe("回归：既有路由不受 WebUI 影响", () => {
     expect(api.status).toBe(200)
     expect(JSON.parse(api.text).plugins).toEqual({ handlers: 0, loaded: 0, tasks: 0 })
 
-    // 其余路径仍然走宿主的兜底跳转
-    expect((await request(url, "/whatever")).status).toBe(302)
+    // 其余路径走兜底 404 JSON——**不是** 302 到外部站点（BCR-0003）
+    const miss = await request(url, "/whatever")
+    expect(miss.status).toBe(404)
+    expect(miss.headers["location"], "兜底不该再做任何跳转").toBeUndefined()
+    expect(JSON.parse(miss.text).code).toBe("not_found")
   })
 })

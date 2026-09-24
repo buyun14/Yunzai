@@ -99,6 +99,10 @@ try {
 > （`lib/bot.js` 的 `express` 链：`earlyProbe` → 前端 → `serverAuth`）。
 > 它只对 `GET/HEAD` 的 `/dashboard` 与 `/dashboard/` 直接答复入口文档，
 > 其余一律 `next()`；未启用 WebUI 时是纯透传。理由与边界见 BCR-0002。
+>
+> **同期的删除（2026-09-24，BCR-0003）**：`server.redirect` 这个配置键与
+> 「未命中路径 302 到框架作者仓库」的兜底行为已删除，兜底改为 404 JSON。
+> 这一条是**减少**对外行为，不是新增契约；旧配置里残留的键会被静默忽略。
 
 ### 1.2 L1 适配层
 
@@ -139,7 +143,7 @@ try {
 | 3 | 无 | 若为可测性重构生产代码会引入无谓 diff | `vi.stubGlobal` 隔离；生产代码只在既定改造中变动 |
 | 4 | `e.*` 全部字段、`e.reply` 签名、适配器契约 | 影响面最大 | 分 v1/v2/v3 三步，每步零行为变化，录制样本逐字段对比 |
 | 5 | `config/config/*.yaml` 结构 | 损坏用户配置 | 迁移前强制备份；失败即中止；只增改已知键 |
-| 6 | `lib/bot.js` 的中间件与路由 | 新路径与既有路由冲突、鉴权被绕过 | 新路径统一前缀；`/status`、`/exit`、`/File` 加回归测试 |
+| 6 | `lib/bot.js` 的中间件与路由；`config/default_config/server.yaml` 少一个 `redirect` 键 | 新路径与既有路由冲突、鉴权被绕过；未命中路径的响应形状变化 | 新路径统一前缀；`/status`、`/exit`、`/File` 加回归测试；兜底的 302→404 变化按 BCR-0003 登记 |
 | 7 | 无（未启用时不生效） | 密钥与依赖泄漏 | 独立密钥路径；optional 依赖；不改变 1-6 的行为 |
 
 ---
@@ -173,6 +177,36 @@ try {
 |---|---|---|---|---|---|---|---|
 | BCR-0001 | 5 | 删除 `sequelize` / `sqlite3` 依赖与 `db.yaml` | 声明了这些依赖的未知第三方插件 | 无（当前仓库内零引用） | 删除前 grep 确认；`db.yaml` 移入备份目录而非直接删除；CHANGELOG 说明 | 发布两个版本后 | � 告警期（2026-09-24 已决策删除，未执行） |
 | BCR-0002 | 6 | 面板的两个前端路径免鉴权：`/dashboard/assets` 进 `skip_auth`，`/dashboard` 与 `/dashboard/` 由前端中间件直接答 | **既有路径零影响**（只追加前缀，`serverAuth` 的判断逻辑与顺序都没动）。新增两处**免鉴权**入口 | 无 | 只在 `server.webui.enable === true` **且** `server.auth` 非空时生效；默认关闭时 `mount()` 连日志都不打，`skip_auth` 保持空数组 | 面板改为把令牌烘进 HTML（不打算做） | 已合入（2026-09-24） |
+| BCR-0003 | 6 | 删除 `server.redirect` 配置键与"未命中路径 302 跳转"行为；兜底改为 **404 JSON** | ① 显式配置过 `redirect` 的部署：该键变成无效的多余键（**不会报错**，与 L1-0001 的 `legacy_pipeline` 同样处理）；② 访问未命中路径的人：从"被跳到框架作者仓库"变成拿到 404 | 无（非必要行为，不提供兼容开关） | 想给自己的站点做落地页就显式注册 `Bot.express.get("/", …)`；旧配置里的 `redirect` 键可删可留 | 无（不打算恢复） | 已合入（2026-09-24） |
+
+> **BCR-0003 的动机**：`config/default_config/server.yaml` 里的
+> `redirect: https://git.trss.me/Yunzai` 让**任何未命中的路径**都 302 到框架作者的仓库。
+> 对一个自建部署来说这是纯粹的对外噪声：它泄露了一个与本部署无关的第三方地址，
+> 也让"这个端口到底是什么服务"变得含糊。属于非必要的个性化行为，删除。
+>
+> 同一批还清掉了另外三处同类痕迹（都不改契约，只是输出内容）：
+>
+> | 位置 | 原内容 | 现内容 |
+> |---|---|---|
+> | `lib/config/init.js` 的 `process.title` | `TRSS Yunzai v… © 2023 - 2026 TimeRainStarSky` | `Yunzai v…` |
+> | `lib/config/init.js` 的启动横幅 | 多打一行 `https://git.trss.me/Yunzai` | 去掉，只留程序名与版本 |
+> | `lib/config/init.js` + `lib/events/online.js` | `----^_^----` 颜文字标记 | 去掉（上线那处换成一句有信息量的话） |
+>
+> **真机验证（2026-09-24，默认配置：无 auth、未启用面板）**：
+>
+> ```
+> GET /            → 404 application/json  {"code":"not_found","message":"没有这个路径：GET /"}   无 Location
+> GET /whatever    → 404 application/json  （同上形状）                                          无 Location
+> GET /git.trss.me → 404 application/json  （同上形状）                                          无 Location
+> GET /status      → 200 application/json  （既有路由未受影响）
+> 启动横幅：Yunzai v3.1.3 启动中...   ← 不再有作者仓库地址、不再有 ^_^
+> ```
+>
+> **旧配置里的 `redirect` 键怎么处理**：它已经没有任何消费方，留着也**不会报错**
+> （与 L1-0001 淘汰后的 `bot.legacy_pipeline` 同样处理），但会让配置文件里多一条
+> 误导性内容。本仓自带的 `node . config:diff` 会把它报成
+> `多余（你有、默认没有）: redirect`，照着删掉即可（本次也顺手清掉了开发机上的那一份）。
+> 刻意**不做**自动迁移：为一个纯装饰性键写迁移脚本，成本大于收益（`AGENTS.md` 规则 5）。
 
 > **BCR-0002 为什么要走登记**：它确实放宽了鉴权——`<script>` / `<link>` 没法带自定义头，
 > 不放行 `/dashboard/assets` 就是「HTML 出来了、脚本全 401」；而**入口文档本身**

@@ -193,5 +193,8 @@ flowchart TD
       **真机验证 17 项断言全过**（`/dashboard/` 与 assets 免鉴权 200、
       `/dashboard/whatever` 401、五个接口响应体逐字段核对、SSE 实时）。
       四个闸门全绿：prettier / eslint 0 问题 / typecheck 0 处 / `vitest run` 37 文件 617 用例。
+      同期按 **BCR-0003** 删掉了 `server.redirect` 与「未命中路径 302 跳到框架作者仓库」的
+      兜底行为（改为 404 JSON），并清掉 `process.title` 的作者/©、启动横幅里的作者仓库地址、
+      两处 `----^_^----` 颜文字标记。
       **未完成**：v2 配置编辑与 v3 插件页面，见 `06-webui.md` §7.6）
 - [ ] 阶段 7：AI 能力（按需）

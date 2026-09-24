@@ -27,7 +27,7 @@
 
 | 能力 | 实现 |
 |---|---|
-| 端口与开关 | `config/default_config/server.yaml`：`url`、`port: 2536`、`redirect`、`auth`、`https` |
+| 端口与开关 | `config/default_config/server.yaml`：`url`、`port: 2536`、`address`、`auth`、`https`、`webui` |
 | 中间件链 | `serverAuth` → `compression()` → `/status` → `urlencoded/json/raw/text` → `serverHandle` → `/exit` → `/File` |
 | `/status` | 返回 `process.report.getReport()`，并把 IPv4 正则打码 |
 | `/exit` | 仅允许本机（`::1` / `::ffff:127.0.0.1`） |
@@ -159,8 +159,11 @@
 >    「声明了 4 个形参的层」，而抛错的 body 解析器挂在路由之前，Router 内部的 4 参
 >    处理器接不到它。挂上去的效果：全局 `express.json()` 的超限错误不再变成
 >    宿主 `serverError()` 的那个**空的 200**，而是 413 JSON。
-> 2. **未命中的 `/api/v1/*` 返回 JSON 404**，不落到宿主的 `302 → server.redirect`：
->    对 API 客户端来说「一个 HTML 跳转」比 404 难排查得多。
+> 2. **未命中的 `/api/v1/*` 返回 JSON 404**，不落到宿主的兜底处理：
+>    那时宿主的兜底会把请求 302 到 `server.redirect`，对 API 客户端来说
+>    「一个 HTML 跳转」比 404 难排查得多。（`server.redirect` 与其跳转行为已在
+>    同一阶段按 BCR-0003 删除，宿主兜底现在也是 404 JSON；这条保留是为了让
+>    API 的 404 形状由 Router 自己保证，不依赖宿主实现。）
 >
 > 测试：`tests/unit/web/{security,server}.test.js` 共 36 个用例，全部走真实 HTTP
 > （`node:http` 而不是 `fetch`——后者表达不了「不带 `Content-Length`」的 chunked 请求）。
@@ -184,7 +187,7 @@
 >
 > GET /api/v1/ready  不带令牌 → HTTP 401
 > GET /api/v1/ready  带令牌   → {"ready":true,"online":2,"uptime":10}
-> GET /api/v1/nope   带令牌   → HTTP 404（JSON，而不是宿主的 302 跳转）
+> GET /api/v1/nope   带令牌   → HTTP 404（JSON，而不是宿主的跳转）
 > ```
 >
 > 这次真跑是**必要**的：单测注入的是假配置，而"配置读不到"恰好是这类接线最典型的
@@ -312,7 +315,7 @@
 > GET /dashboard/whatever         → 401（非入口仍然要令牌）
 > GET /api/v1/status  不带令牌     → 401
 > GET /api/v1/status  带令牌       → 200 {"version":"3.1.3","online":2,…}
-> GET /api/v1/nope                → 404（JSON，不是宿主的 302）
+> GET /api/v1/nope                → 404（JSON，不是宿主的跳转）
 > status  : version=3.1.3 online=2 uptime=7s rss=180.07MB
 >           插件 {"handlers":27,"loaded":27,"tasks":0} 适配器 7 账号 1
 > plugins : total=27，首条 botOperate [system/botOperate.js] priority=null

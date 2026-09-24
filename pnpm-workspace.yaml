@@ -17,6 +17,16 @@ allowBuilds:
   puppeteer: true
   sqlite3: true
   sharp: true
+  # 下面三项是 dashboard/（前端）引入的，pnpm 因为它是 workspace 成员而在这里
+  # 开了口子。**前端依赖是单独装的**（`pnpm -C dashboard install`），
+  # 不需要在根仓库批准它们的构建脚本：
+  # - @parcel/watcher 只是 Vite 的可选文件监听加速，缺失会回退
+  # - esbuild 的平台二进制已随包安装，postinstall 只做校验
+  # - vue-demi 的 postinstall 只为 Vue 2/3 双支持重建入口，本项目固定用 Vue 3
+  # 显式写 false 而不是留空：留空时 pnpm 会把占位串写回本文件并让每次都变 dirty。
+  "@parcel/watcher": false
+  esbuild: false
+  vue-demi: false
 onlyBuiltDependencies:
   - classic-level
   - log4js
