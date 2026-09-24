@@ -184,9 +184,26 @@ E:\ProjectCollection\2026_9\Own\Yunzai
 # 开发仓
 E:\ProjectCollection\2026_9\Work\Yunzai
 git remote -v
+#   origin    git@github.com:buyun14/Yunzai.git (fetch/push)   ← 本仓的远端
 #   upstream  git@github.com:TimeRainStarSky/Yunzai.git (fetch)
 #   upstream  DISABLE (push)        ← 防止误推
 ```
+
+**`origin` 取代了原来的 `main`（2026-09-24）**：这个仓库里原本躺着一条**与上游
+无共同祖先**的独立历史（`36849f0`，提交信息是"修复事件调用与异常清理边界"一类的
+自研修复），不是上游的镜像。推本仓 `main` 之前先把它完整保留了下来：
+
+| 分支 | 内容 |
+|---|---|
+| `origin/main` | **本仓**重构后的历史（`038e354` 起），已设为本地 `main` 的上游 |
+| `origin/pre-refactor-main` | 原 `main` 的完整历史（`36849f0`），**只作存档**，不再合并 |
+
+覆盖时用的是 `--force-with-lease` 而不是 `--force`：万一远端在抓取之后又被改过，
+它会拒绝推送而不是静默覆盖。本地也留了同名分支 `pre-refactor-main` 便于随时对照。
+
+> 若要取回那条历史：`git fetch origin pre-refactor-main`，或本地直接
+> `git log pre-refactor-main`。**不要**把它 merge 进 `main`——两条线没有共同祖先，
+> 合并只会得到一个无法维护的怪物；需要某处修复就按 5.3 的策略单独 cherry-pick。
 
 ### 5.2 例行检查
 
