@@ -2,6 +2,7 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import YAML from "yaml"
 import { createBackup, listBackups, restoreBackup } from "../../../lib/config/backup.js"
 import { ConfigMigrationError, loadMigrations, runMigrations } from "../../../lib/config/migrate.js"
 import {
@@ -124,8 +125,8 @@ describe("loadMigrations", () => {
 
 describe("runMigrations：正常路径", () => {
   it("首次执行跑完全部迁移，并写下当前版本", async () => {
-    // 注意 `CURRENT_CONFIG_VERSION` 现在是 1：想验证「跑多条」得把它 +1
-    // 并同时新增一个迁移脚本（否则 `loadMigrations` 会拦住版本号超前的脚本）。
+    // 想验证「一次跑多条」得先新增迁移脚本：临时目录里放几条就只跑几条，
+    // 而版本号超过 `CURRENT_CONFIG_VERSION` 的脚本会被 `loadMigrations` 拦住。
     await writeMigration("001-base.js", passthrough(1))
 
     const result = await runMigrations(options())
@@ -174,8 +175,6 @@ describe("runMigrations：正常路径", () => {
   })
 
   it("版本号已经到底时一条都不跑，也不留备份", async () => {
-    // ⚠️ 无法用「版本 2 的脚本」来验证跳过低版本：`CURRENT_CONFIG_VERSION` 现在是 1，
-    // 而版本号大于它的脚本会被 `loadMigrations` 直接拦住（见上面那条用例）。
     // 这里能钉住的是「没有缺失项时不动任何东西」，跨版本跳过则由幂等用例间接覆盖。
     await writeVersion(CURRENT_CONFIG_VERSION, { configDir })
     await writeMigration("001-base.js", passthrough(1))
@@ -246,5 +245,58 @@ describe("backup.js", () => {
     await expect(restoreBackup("不存在", { configDir, root: backupRoot })).rejects.toThrow(
       /没有 config\/ 目录/,
     )
+  })
+})
+
+describe("迁移 002：masterQQ 数组化（历史快照）", () => {
+  /** 仓库里真实的迁移脚本目录 */
+  const REAL_MIGRATIONS = "lib/config/migrations"
+
+  /**
+   * 读一份历史快照。
+   *
+   * @param {"v1"|"v2"} version 快照所属的版本目录
+   * @returns {Promise<string>} 文件内容
+   */
+  function snapshot(version) {
+    return fs.readFile(new URL(`../../fixtures/config/${version}/other.yaml`, import.meta.url), "utf8")
+  }
+
+  it("把标量变成数组，且注释与未知键都还在", async () => {
+    await fs.writeFile(path.join(configDir, "other.yaml"), await snapshot("v1"))
+
+    // 用**真实**的迁移目录跑，这样测的是真的会执行的那条脚本
+    await runMigrations({ ...options(), migrationsDir: REAL_MIGRATIONS })
+
+    const after = await fs.readFile(path.join(configDir, "other.yaml"), "utf8")
+    const parsed = YAML.parse(after)
+
+    expect(parsed.masterQQ).toEqual([12345])
+    expect(parsed.whiteGroup).toEqual([])
+    expect(parsed._自定义).toEqual({ note: "别动我" })
+    // 注释必须活下来——这就是用 parseDocument 而不是 parse + stringify 的全部意义
+    expect(after).toContain("# 保留原样的注释")
+    // 与期望快照语义一致（YAML 重新序列化时引号/空格会变，所以比语义不比字节）
+    expect(parsed).toEqual(YAML.parse(await snapshot("v2")))
+    expect(await readVersion(configDir)).toBe(CURRENT_CONFIG_VERSION)
+  })
+
+  it("幂等：已经是数组时一字不改", async () => {
+    const before = await snapshot("v2")
+    await fs.writeFile(path.join(configDir, "other.yaml"), before)
+    // 版本停在 1，于是只有 002 会跑
+    await writeVersion(CURRENT_CONFIG_VERSION - 1, { configDir })
+
+    await runMigrations({ ...options(), migrationsDir: REAL_MIGRATIONS })
+
+    expect(await fs.readFile(path.join(configDir, "other.yaml"), "utf8")).toBe(before)
+  })
+
+  it("没有 other.yaml 时直接返回，不抛错", async () => {
+    // beforeEach 会建一份 other.yaml，所以这里要先删掉——迁移脚本对"文件不存在"
+    // 必须静默放过（initCfg() 会在启动时补上它），否则老用户的启动会被卡住
+    await fs.rm(path.join(configDir, "other.yaml"))
+    await runMigrations({ ...options(), migrationsDir: REAL_MIGRATIONS })
+    await expect(fs.access(path.join(configDir, "other.yaml"))).rejects.toThrow()
   })
 })
