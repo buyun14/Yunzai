@@ -1,9 +1,6 @@
 import cfg from "../../lib/config/config.js"
-import util from "../../lib/util.js"
 import fetch from "node-fetch"
 import { WebSocket } from "ws"
-import fs from "node:fs"
-import YAML from "yaml"
 
 Bot.adapter.push(
   new (class MilkyAdapter {

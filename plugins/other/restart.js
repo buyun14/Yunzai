@@ -1,5 +1,4 @@
 import cfg from "../../lib/config/config.js"
-import { spawn } from "child_process"
 import PluginsLoader from "../../lib/plugins/loader.js"
 
 const temp = {}

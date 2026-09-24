@@ -55,5 +55,13 @@ export default [
       // 是合法的全局探测写法，这里声明以免 no-undef 误报。
       globals: { ...globals.node, logger: "readonly" },
     },
+    rules: {
+      // 与 .js/.mjs 用同一套策略。
+      // 不写这段的话 `.cjs` 会退回 js.configs.recommended 的默认值，
+      // 于是同一个 `catch {}` 写法在 .js 里是 warn、在 .cjs 里是 error
+      // （.puppeteerrc.cjs 的 `catch (err) {}` 正因此报了两条）。
+      "no-unused-vars": ["warn", { args: "none", caughtErrors: "none" }],
+      "no-empty": ["warn", { allowEmptyCatch: true }],
+    },
   },
 ]
