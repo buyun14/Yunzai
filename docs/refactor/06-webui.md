@@ -7,9 +7,9 @@
 
 提供运维界面（状态、插件、配置、日志），并让 HTTP API 有稳定契约，供第三方与插件页面消费。
 
-> **状态（2026-09-24）：进行中 —— 安全基座已落地。**
-> 已完成 §3.3 的四条（含两处偏离，见本节末）与启动期就绪语义；
-> 只读 API、契约与前端尚未开工。
+> **状态（2026-09-24）：进行中 —— 安全基座 + v1 只读 API 已落地。**
+> 已完成 §3.3 的四条（含两处偏离）、启动期就绪语义与四个 `GET` 接口；
+> 契约文件与前端尚未开工。
 > 阶段 5 遗留的「宿主配置 schema 化」（`config/host.schema.js`）与本节 v2 的配置编辑合并做（同一个同构校验器）。
 
 ---
@@ -196,6 +196,55 @@
 | `dashboard/` | 前端工程（独立 package.json） |
 | `docs/openapi.yaml` | API 契约 |
 
+> **落地情况（2026-09-24）：本表的 `api/{router,status,plugins,config}.js` 与 `security.js` 已落地。**
+>
+> v1 的四个接口（全部是 `GET`，均需鉴权；路径集中在 `api/router.js`，与未来的
+> `openapi.yaml` 一一对应）：
+>
+> | 接口 | 返回 |
+> |---|---|
+> | `/api/v1/ready` | `{ ready, online, uptime }`。前端的等待页只依赖它 |
+> | `/api/v1/status` | 版本、在线状态、运行时长、内存、运行时、插件计数、适配器列表、账号列表 |
+> | `/api/v1/plugins` | 已加载插件的**执行顺序**（即 `priority` 排序后的）与规则摘要 |
+> | `/api/v1/config` | 文件清单 + 与出厂默认的差异**条数** |
+> | `/api/v1/config?file=x.yaml` | 该文件在用户侧与默认侧的**值**（密钥键已脱敏） |
+>
+> 三个设计决定：
+>
+> 1. **插件列表读内存里的 `priority`，不读磁盘上的 `plugin.json`。**
+>    面板要回答的是"现在生效的是哪些"；插件被 `disable` 掉之后 `plugin.json` 仍在磁盘上，
+>    用磁盘数据会造出"面板里有、实际不工作"的错觉。顺序原样保留，因为那就是执行顺序。
+> 2. **配置清单只给差异条数，值只在单文件接口里给**，且密钥键（`password`/`token`/`auth`/
+>    `secret`/`credential`/`cookie`）**整个值**被遮住并在 `redacted` 里列出路径。
+>    静默打码比不打码更糟——用的人会以为配置就是 `***`。
+>    （刻意不遮 `key`：`https.key` 是证书**路径**，遮了反而难排查。）
+> 3. **`?file=` 先过白名单**（`^[\w.-]+\.ya?ml$` 且 `basename` 必须等于原名），
+>    恢复/读取类接口最典型的漏洞就是让请求决定路径。
+>
+> 还有一处**未做**：`api/logs.js`（SSE 日志流）。日志要拿到实时流得给 log4js 挂一个
+> appender（或改成 tail 落盘文件），两条路都有取舍，单独一片做。
+>
+> **真机验证（2026-09-24，同样临时改配置、验完已还原）**：
+>
+> ```
+> status:  version=3.1.3 online=2 uptime=29s rss=108.41MB node=v24.19.0
+>          插件计数 {"handlers":27,"loaded":27,"tasks":0}  适配器 7  账号 [{"uin":"stdin"}]
+> plugins: total=27
+>          botOperate [system/botOperate.js] priority=null rules=2 (reg=^#(Bot|机器人)验证.+:.+$, fnc=Verify)
+> config:  files=9 summary={"files":2,"missing":3,"extra":1,"changed":1}
+> server.yaml: status=both redacted=["auth"] auth="***" port=2536
+> 路径穿越 ../package.json → 400 {"code":"bad_request",…}
+> 不存在的文件            → 404 not_found
+> ```
+>
+> 两点值得说：
+>
+> - `redacted: ["auth"]` 那一行是重点——当时配置里确实写着临时令牌，而**响应体里没有它**；
+> - `config` 的那几个数字包含了**那次临时改动本身**带来的差异（`webui.enable` 被改过），
+>   不是这台机器的正常状态。真机上更有价值的信息是清单里 9 个文件都是 `both`，
+>   即"两侧都有"的文件也不会从清单里消失（这正是自己列目录、而不是直接用
+>   `collectDiff()` 的差异清单的原因）。
+
 改动：
 
 | 文件 | 改动 |
@@ -212,8 +261,11 @@
 - [x] `auth` 为空时启用 WebUI 会被拒绝，日志给出明确配置指引
       —— 有单测：`mount()` 返回 `reason: "no-auth"`，日志含「server.auth 为空」与 `config/config/server.yaml`
 - [x] `/status`、`/exit`、`/File` 与适配器注册的路由行为不变（有回归测试）
-      —— 已有的是「早期探针不拦这三个前缀」的用例（它们照旧走宿主链路）；
-      **响应内容级别的回归测试**还没写，随只读 API 一起补
+      —— 单测证明启用 WebUI 时这三个路径仍由原本的处理器答复（互不遮蔽），
+      且其余路径照旧走宿主的兜底跳转；真机又跑了一遍真实的 `serverAuth`（401）
+      与 `/exit`（`app stop` 确实让进程退出了）
+      ⚠️ **缺口**：没有直接调用 `lib/bot.js` 里那三个处理器的单测——导入它会撞上
+      测试环境的 O6（`logger.defaultLogger`），所以那一条只能靠真跑覆盖
 - [ ] CI 中 `pnpm generate:api` 后 `git diff --exit-code` 通过（契约与代码同步）
 - [ ] 日志 SSE 在客户端断开后服务端正确释放（无句柄泄漏，用连续 100 次连接/断开验证）
 - [x] 启动期（`stat.online !== 2`）访问 `/dashboard` 有明确提示，不出现无限转圈

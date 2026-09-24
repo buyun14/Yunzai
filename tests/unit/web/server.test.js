@@ -352,3 +352,31 @@ describe("安全中间件确实挂在链上", () => {
     expect(Number(blocked.headers["retry-after"])).toBeGreaterThanOrEqual(1)
   })
 })
+
+describe("回归：既有路由不受 WebUI 影响", () => {
+  it("启用 WebUI 时 /status、/File、/exit 仍由原本的处理器答复", async () => {
+    const { webui } = makeWebUI({ address: "127.0.0.1" })
+    const app = express()
+    app.use(webui.earlyProbe.bind(webui))
+    // 与 lib/bot.js 一致：三个既有路由挂在早期探针之后、WebUI 挂载点之前
+    app.use("/status", (req, res) => res.type("json").send('{"report":true}'))
+    app.use("/File", (req, res) => res.send("file-body"))
+    app.use("/exit", (req, res) => res.send("exited"))
+    webui.mount(app, { loader: { priority: [] } })
+    // 宿主的兜底跳转（run() 里最后加的那一层）
+    app.use((req, res) => res.redirect("https://git.trss.me/Yunzai"))
+
+    const url = await serve(app)
+    expect((await request(url, "/status")).text).toBe('{"report":true}')
+    expect((await request(url, "/File")).text).toBe("file-body")
+    expect((await request(url, "/exit")).text).toBe("exited")
+
+    // 同时面板路径可用（两者共存，互不遮蔽）
+    const api = await request(url, `${API_PREFIX}/status`)
+    expect(api.status).toBe(200)
+    expect(JSON.parse(api.text).plugins).toEqual({ handlers: 0, loaded: 0, tasks: 0 })
+
+    // 其余路径仍然走宿主的兜底跳转
+    expect((await request(url, "/whatever")).status).toBe(302)
+  })
+})
