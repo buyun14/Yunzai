@@ -1,0 +1,59 @@
+name: Smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # 在 CI 中跳过 git hooks 安装
+  HUSKY: 0
+
+jobs:
+  startup:
+    name: startup
+    # 只在 ubuntu 上跑，两个理由：
+    # 1. 冒烟验证的是"模块解析 + 顶层初始化 + 插件加载"这类**与操作系统无关**的失败，
+    #    真正的 OS 差异由 ci.yml 的 4 个矩阵组合覆盖；
+    # 2. 启动链强依赖 redis（lib/config/redis.js 里连不上会去 spawn 本地二进制，
+    #    且 redisInit 传了 exit=true，失败即 Bot.exit()），而 windows runner
+    #    不支持 service container。
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        # 默认配置是 host=127.0.0.1 / port=6379（config/default_config/redis.yaml），
+        # service container 正好发布到该地址，于是走"连接成功"分支，
+        # 不会去 spawn redis-server 二进制（ubuntu runner 上不一定有）。
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.6.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          # 仓库不跟踪 pnpm-lock.yaml，缓存键退化为 package.json（理由见 ci.yml）
+          cache: pnpm
+          cache-dependency-path: package.json
+
+      - name: Install
+        run: pnpm install --no-frozen-lockfile
+
+      # 断言与退出逻辑都在 scripts/smoke.mjs 里，这里只负责起 redis 并调用它。
+      # 它在 CI 上承担的是 lint / typecheck / 单测都覆盖不到的那一段：
+      # 真正 `node .` 启动一次，确认插件能全部加载、随后能优雅退出。
+      - name: Startup smoke
+        run: pnpm smoke

@@ -182,21 +182,36 @@ puppeteer / 渲染 / 适配器等需要真实环境才能跑的模块，
 |---|---|---|---|
 | `ci.yml` | push / PR | 矩阵 `os: [ubuntu-latest, windows-latest]` × `node: [22, 24]`；步骤 `pnpm i` → `lint` → `lint:eslint` → `typecheck` → `test` | ✅ 已落地 |
 | `ci.yml` 的 `coverage` job | push / PR | 单个组合（ubuntu / node 24）跑 `pnpm test:coverage`；门槛见 §3.4.1 | ✅ 已落地 |
-| `smoke.yml` | push / PR | 跑一次"启动并加载全部插件后退出"，捕获加载期崩溃 | 🚧 待做（见下方偏差记录） |
+| `smoke.yml` | push / PR | 单组合（ubuntu / node 24 + redis service）跑 `pnpm smoke`：真的启动一次，跑到"插件加载完成"，再让它优雅退出 | ✅ 已落地 |
 | `codeql.yml` | 定时 + push | JavaScript/TypeScript 静态安全扫描（AstrBot 亦有此项） | ⬜ 未开始 |
 
 > **矩阵里 `node` 取 `[22, 24]` 而不是 `[20, 22]`**：本项目的 `engines.node` 是 `>=22.12.0`
 > （由 `file-type@22` 的 `>=22`、`puppeteer` 的 `>=22.12.0` 实测推导而来），
 > 跑 node 20 只会得到一堆无关的失败。
 
-> **偏差记录：`smoke.yml` 推迟了两次。**
+> **偏差记录：`smoke.yml` 推迟了两次，最后是这样落地的。**
 > 阶段 0 无可行的启动方式：`Bot.run()` 会拉起 redis 进程、初始化 puppeteer、等待适配器上线，
-> CI 中无真实账号会挂起。原计划等到阶段 2 的夹具就位后补；
-> 阶段 2 结束时夹具已就位（`tests/fixtures/events/` + stdin 适配器），
-> 但**又冒出一个新障碍**：`lib/config/redis.js` 在连不上时会 `spawn` 一个 redis 二进制，
-> CI 的 runner 上没有它，且 `redisInit` 传入 `exit=true` 会直接 `Bot.exit()`。
-> 因此 `smoke.yml` 需要在工流里起一个 redis service（ubuntu 可行，windows runner 不支持 service container），
-> 或者给启动加一个可注入的 redis 替身。属于阶段 3 的待做项。
+> CI 中无真实账号会挂起。当时计划等阶段 2 的夹具就位后补；阶段 2 结束时夹具已就位，
+> 但**又冒出一个新障碍**：`lib/config/redis.js` 连不上时会 `spawn` 一个 redis 二进制，
+> CI runner 上没有它，而 `redisInit` 传了 `exit=true`，失败即 `Bot.exit()`，是硬失败。
+>
+> 最终方案：**给 smoke job 挂一个 `redis:7-alpine` service container**（正好发布到
+> 默认配置的 `host=127.0.0.1 / port=6379`），于是走"连接成功"分支、`spawn` 永不触发。
+> 附带结果是作业只能跑在 ubuntu 上（windows runner 不支持 service container）——
+> 可以接受，因为冒烟验证的是与 OS 无关的失败，OS 差异由 `ci.yml` 的 4 个组合覆盖。
+>
+> **落地时被实测改掉的两个设计**（原计划想当然的地方）：
+>
+> 1. 原计划"看到 `加载插件[N个]` 后 `GET /exit` 再断言退出码为 0"。
+>    实测发现 `app.js` 的 `stop` → `Bot.serverExit()` → `Bot.exit(1)`，
+>    也就是**优雅停止与崩溃的退出码都是 1**，退出码根本不能当判据。
+>    最终判据是日志：必须出现 `加载插件[N个]` 且 N > 0。
+> 2. 脚本在启动前**必须先探测端口是否空闲**：`Bot.serverEADDRINUSE()` 会向该端口发
+>    `/exit` 去挤掉占用者，如果本地正跑着一个实例，冒烟会把它关掉。宁可提前退出。
+>
+> 详情见 `scripts/smoke.mjs` 的文档注释；它同时也登记了自身局限——
+> 只回答"能不能起来"（判失败的是模块解析失败 / 插件加载超时 / 未捕获异常三类信号），
+> 适配器连不上平台产生的 `[ERRO]` 只统计、不判失败，因为一个长期因环境而红的冒烟等价于没有冒烟。
 
 两个从 AstrBot 借来的细节：
 
@@ -216,7 +231,7 @@ puppeteer / 渲染 / 适配器等需要真实环境才能跑的模块，
 | 5 | `husky` + `lint-staged` + `commitlint` | ✅ | ✅ 阶段 0 |
 | 6 | 新增 `ci.yml`（先只跑 lint + test，typecheck 设 `continue-on-error`） | ✅ | ✅ 阶段 0 |
 | 6a | **覆盖率**：登记基线 → 设门槛 → 接进 CI | ✅ | ✅ 阶段 3（见 §3.4.1） |
-| 7 | 新增 `smoke.yml` | ✅ | 🚧 阶段 3 待做（redis 障碍，见 §3.6） |
+| 7 | 新增 `smoke.yml` | ✅ | ✅ 阶段 3（redis service + `scripts/smoke.mjs`） |
 | 8 | 收紧：按目录消除 ESLint 告警与 TS 报错，逐目录把 `continue-on-error` 去掉 | 逐步 | 🚧 未开始 |
 
 ---
@@ -229,7 +244,9 @@ puppeteer / 渲染 / 适配器等需要真实环境才能跑的模块，
 - [x] `pnpm typecheck` 可运行，报错数量已登记基线（阶段 2 末为 270 处）
 - [x] `pnpm test` 至少覆盖：`lib/plugins/schema.js` 校验器、调度器递回逻辑、`RateLimit` 拆分的两个 Stage
 - [x] **覆盖率**：核心模块 95.22% / 89.66% / 94.23% / 96.91%，门槛已入 `vitest.config.js` 并在 CI 里阻塞（`03-engineering.md` §3.4.1）
-- [ ] `smoke.yml` 在 3 个 OS 上跑通（redis 障碍待解）
+- [x] `smoke.yml` 跑通：本地实测加载插件 27 个 / 适配器 7 个 / 监听 5 个，
+      随后通过 `node . stop` 优雅退出；失败路径也实测过（无孤儿进程、无残留 redis）
+      （**尚未在真实 runner 上跑过**，CI 上依赖 redis service container）
 - [ ] `ci.yml` 在 Windows 与 Linux matrix 上均绿灯（本地闸门全绿，**尚未在真实 runner 上跑过**）
 - [x] 提交不符合 Conventional Commits 时被 `commitlint` 拒绝（阶段 0 已实测）
 - [x] `pnpm i` + `pnpm test` 在干净克隆的仓库上可一次通过（无隐式全局状态依赖）
