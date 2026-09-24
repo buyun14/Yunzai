@@ -189,6 +189,21 @@ util.makeLog("trace", `不存在 Bot.${prop}`)
   `TypeError: Cannot convert a Symbol value to a string` 变红）。
 - 这条同时说明：类型检查虽然噪声大，但确实能发现 ESLint 覆盖不到的问题。
 
+#### D4 · `lib/tools/web.js` · `pnpm web` 因缺依赖跑不起来（上游同样如此）
+
+`lib/tools/web.js` 顶部 `import template from "express-art-template"`，
+而 `package.json` 里**没有**这个包（只有 `art-template`）——上游
+`Own/Yunzai/package.json` 同样没有，`scripts.web` 同样指向这个文件。
+也就是说 `pnpm web`（模板调试页）现在一启动就报 module not found。
+
+- 本次只做**类型处理**：把路径断言成 `string`，让 TS 不再报 TS2307。
+  **没有**装依赖，也没有把它改成"可选用法 + 友好报错"——那是功能决策，
+  不属于本轮收紧的范围。
+- 去留归**阶段 6**：那一阶段本来就要重做这个调试页（它做的事是"把 temp/ViewData
+  里的渲染数据配着模板页面调出来看"）。
+- 记在这里是因为：这条只有靠类型检查（或真的去跑 `pnpm web`）才会暴露，
+  而它已经静静地坏了一段时间。
+
 ### 3.4 TS8032：JSDoc「点号名」的语法约束（30 处，已清零）
 
 报错形如：
