@@ -122,9 +122,18 @@ tests/
 
 ### 3.5 提交与分支
 
-- `husky` + `lint-staged`：提交前只对暂存文件跑 `prettier --write` + `eslint --fix`；
+- `husky` + `lint-staged`：提交前只对暂存文件跑 `prettier --write`（**不含 ESLint**，原因见下）；
 - `commitlint` + Conventional Commits：`feat` / `fix` / `refactor` / `docs` / `chore` / `test` / `perf`；
 - 分支：`main` 始终可用，改动走 `feat/*` 短分支。
+
+> **偏差记录：提交钩子里不跑 ESLint。**
+> `eslint --fix` 的退出码包含**基线里已有的**报错，不区分是否本次引入。
+> 阶段 0 记录的 16 个 error 里有几个位于改造必须反复触碰的文件
+> （`lib/plugins/loader.js` 的 `no-setter-return`、`lib/bot.js` 的 Symbol 转换、`app.js` 的 `no-fallthrough`），
+> 实测一旦把 eslint 放进钩子，这些文件就 **任何改动都无法提交**（阶段 1 第一次提交即被拦住）。
+>
+> 退出条件：`baseline/static-analysis.md` 的数字归零后，把 `eslint --fix` 加回 `lint-staged.config.js`，
+> 同时去掉 CI 中 `lint:eslint` 的 `continue-on-error`。
 
 ### 3.6 CI
 

@@ -75,7 +75,8 @@ git -C "E:\ProjectCollection\2026_9\Work\Yunzai" diff --stat upstream/main HEAD
 
 - [x] 分支模型：`main`（始终可用）+ 短生命周期 `feat/*`、`fix/*`、`chore/*` —— 写入 `AGENTS.md`
 - [x] 采纳 Conventional Commits —— `commitlint.config.js` + `.husky/commit-msg`
-- [x] `husky` + `lint-staged`：`.husky/pre-commit` 对暂存区文件跑 `prettier --write` + `eslint --fix`
+- [x] `husky` + `lint-staged`：`.husky/pre-commit` 对暂存区文件跑 `prettier --write`
+      - **不含 ESLint**：实测 `eslint --fix` 会因基线里已有的报错拦住任何触及这些文件的提交，详见 [`03-engineering.md`](./03-engineering.md) §3.5
 - [x] **已验证（Windows 端到端）**：`git commit` 会触发 `.husky/pre-commit` → `lint-staged` 正常执行；不合规的提交信息被 `.husky/commit-msg` + `commitlint` 拒绝且不产生提交
 
 ### 2.3 代码质量闸门（配置完成，基线待登记）
