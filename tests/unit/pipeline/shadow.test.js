@@ -5,21 +5,20 @@ import { describe, expect, it, vi } from "vitest"
 import cfg from "../../../lib/config/config.js"
 import { PipelineContext } from "../../../lib/pipeline/context.js"
 import { PipelineScheduler } from "../../../lib/pipeline/scheduler.js"
-import { PluginsLoader } from "../../../lib/plugins/loader.js"
 import { makeEvent } from "../../helpers/events.js"
 import { SCENARIOS } from "./shadow-scenarios.js"
 
 /**
- * 影子运行：同一条事件分别走**旧 `deal()`** 与**新流水线**，逐项比较可观测结果。
+ * 场景表回归：每条事件跑一遍**真实流水线**，与冻结的基线逐项比对。
  *
- * # 为什么两侧都要跑真实实现
+ * # 这个文件曾经叫「影子运行」
  *
- * 新流水线的 `dispatch.js` 刻意**没有**复用 `PluginsLoader` 的任何方法。
- * 如果两边共享实现，对比只能证明“代码相同”，不能证明“行为相同”。
- * 同理这里也不 mock 任何一侧——两侧都跑真实代码路径，只替身化外部依赖
- * （`Runtime.init` 会拉 puppeteer，与比较无关）。
+ * `SCENARIOS` 表与这里的观测量，本来是阶段 2 的「影子对比」用的：同一条事件分别走
+ * 旧 `PluginsLoader.deal()` 与新流水线，逐项比较，作为「零行为变化」的证据。
+ * 阶段 2 第 5 步删掉了旧路径，对比无法再做——但**那张表和那些观测量依然有用**：
+ * 对比的结论已经被冻结成基线（见下方「基线对照」），而这些用例仍在跑真实流水线。
  *
- * # 只比较「可观测结果」，不比较内部停在哪一步
+ * # 为什么比较「观测快照」而不是内部状态
  *
  * 旧 `deal()` 是一个一百多行的过程式函数，无法从外部观察它内部的 `return`。
  * 但所有分支的**后果**都是可观测的：
@@ -33,40 +32,16 @@ import { SCENARIOS } from "./shadow-scenarios.js"
  *
  * # 两条硬约束
  *
- * 1. **必须用事件副本**：`ProcessStage` 的 `Object.defineProperty(e, "isSr", …)` 不可重入，
- *    且两侧都会就地包装 `e.reply`。
- * 2. **必须用新的 `PluginsLoader` 实例**：模块默认导出是单例，
- *    它的 `groupCD` / `msgThrottle` 会被前一个用例污染。
+ * 1. **每次都用事件副本**：`ProcessStage` 的 `Object.defineProperty(e, "isSr", …)` 不可重入，
+ *    且阶段会就地包装 `e.reply`。
+ * 2. **每次都用新的 `PipelineContext`**：冷却表挂在阶段实例上，会被前一个用例污染。
  */
 
 // Runtime.init 会静态拉入 puppeteer，对行为比较没有意义
 vi.mock("../../../lib/plugins/runtime.js", () => ({ default: { init: async () => {} } }))
 
 /**
- * 旧侧：跑真实 `PluginsLoader.deal()`。
- *
- * @param {import("./shadow-scenarios.js").Scenario} scenario 场景
- * @returns {Promise<Record<string, unknown>>} 观测快照
- */
-async function runLegacy(scenario) {
-  const invoked = []
-  const counts = []
-  const loader = new PluginsLoader()
-
-  loader.priority = scenario.build?.(label => invoked.push(label)) ?? []
-  loader.count = async (e, type, msg) => {
-    counts.push({ type, msg })
-  }
-  Object.assign(loader, scenario.seed)
-
-  const { event, sent } = makeEvent(scenario.fixture, scenario.overrides)
-  await withCfg(scenario.cfg, () => loader.deal(event))
-
-  return snapshot(event, sent, counts, invoked)
-}
-
-/**
- * 新侧：跑真实流水线（走 `bootstrapPipeline()`，与启动路径相同）。
+ * 跑真实流水线（装配方式与启动路径相同）。
  *
  * @param {import("./shadow-scenarios.js").Scenario} scenario 场景
  * @returns {Promise<Record<string, unknown>>} 观测快照
@@ -116,8 +91,8 @@ function stageOf(ctx, key) {
 /**
  * 在给定配置下执行，结束后恢复。
  *
- * 两侧用的是**同一个** `cfg` 对象（`loader.js` 里静态 import 的模块单例），
- * 因此覆盖是共享的、天然的——这也是这里能用真实 `deal()` 的前提。
+ * 场景表沿用了改造前的写法：只覆盖 `cfg.getGroup()` / `cfg.getOther()` 两个方法，
+ * 不去动宿主配置模块本身（它是个单例，改了会影响别的用例）。
  *
  * @param {{ group?: object, other?: object }} [config] 覆盖项
  * @param {() => Promise<void>} run 待执行的动作
@@ -189,36 +164,15 @@ function snapshot(event, sent, counts, invoked) {
   }
 }
 
-/**
- * 逐字段断言两侧一致。
- *
- * @param {import("./shadow-scenarios.js").Scenario} scenario 场景
- * @returns {Promise<Record<string, unknown>>} 新侧快照，便于用例补充断言
- */
-async function expectSame(scenario) {
-  const legacy = await runLegacy(scenario)
-  const pipeline = await runPipeline(scenario)
-
-  for (const key of Object.keys(legacy))
-    expect(pipeline[key], `场景「${scenario.name}」的 ${key} 不一致`).toEqual(legacy[key])
-
-  return pipeline
-}
-
-describe("影子运行：旧 deal() 与新流水线逐项对比", () => {
+describe("场景表：真实流水线的行为", () => {
   it("场景表覆盖到每一类决策，且用例名唯一", () => {
     expect(SCENARIOS.length).toBeGreaterThanOrEqual(30)
     expect(new Set(SCENARIOS.map(s => s.name)).size).toBe(SCENARIOS.length)
   })
 
-  for (const scenario of SCENARIOS)
-    it(scenario.name, async () => {
-      await expectSame(scenario)
-    })
-})
-
-describe("影子运行：对比本身是有效的（防止假阳性）", () => {
   /**
+   * 按名字取场景。写错名字直接报错，而不是让用例空转。
+   *
    * @param {string} name 场景名
    * @returns {import("./shadow-scenarios.js").Scenario} 场景
    */
@@ -228,44 +182,36 @@ describe("影子运行：对比本身是有效的（防止假阳性）", () => {
     return found
   }
 
-  it("两侧都真的执行了插件处理器", async () => {
-    const scenario = find("rule 命中并执行处理器")
-    expect((await runLegacy(scenario)).invoked).toContain("复读机.onMsg")
-    expect((await runPipeline(scenario)).invoked).toContain("复读机.onMsg")
+  it("确实有场景执行了插件处理器", async () => {
+    expect((await runPipeline(find("rule 命中并执行处理器"))).invoked).toContain("复读机.onMsg")
   })
 
-  it("两侧都真的调用了 getContext 两次", async () => {
-    const scenario = find("context hook 返回 continue 时放行")
+  it("context hook 被调用两次", async () => {
     /**
      * @param {Record<string, unknown>} snap 快照
      * @returns {number} 调用次数
      */
     const twice = snap =>
       /** @type {string[]} */ (snap.invoked).filter(l => l === "钩子.getContext").length
-    expect(twice(await runLegacy(scenario))).toBe(2)
-    expect(twice(await runPipeline(scenario))).toBe(2)
+
+    expect(twice(await runPipeline(find("context hook 返回 continue 时放行")))).toBe(2)
   })
 
-  it("对比对配置敏感：换掉黑名单结果就不同", async () => {
+  it("断言对配置敏感：换掉黑名单结果就不同", async () => {
     const base = find("黑名单用户被拦截")
-    const blocked = await runLegacy(base)
-    const allowed = await runLegacy({ ...base, cfg: { other: { blackUser: [99999] } } })
+    const blocked = await runPipeline(base)
+    const allowed = await runPipeline({ ...base, cfg: { other: { blackUser: [99999] } } })
 
     expect(blocked.invoked).toEqual([])
     expect(allowed.invoked).toContain("复读机.onMsg")
   })
 
-  it("旧侧每次都用新实例，限流表不会被上一次运行污染", async () => {
-    const scenario = find("同文去重生效时拦截")
-    expect(await runLegacy(scenario)).toEqual(await runLegacy(scenario))
-  })
-
-  it("流水线侧每次都用新上下文，冷却表同样不残留", async () => {
+  it("每次都用新上下文，冷却表不残留", async () => {
     const scenario = find("群冷却生效时拦截")
     expect(await runPipeline(scenario)).toEqual(await runPipeline(scenario))
   })
 
-  it("场景表不是退化对比：确实有场景走到了插件执行与发送", async () => {
+  it("场景表不是退化断言：确实有场景走到了插件执行与发送", async () => {
     /** @type {Array<Record<string, unknown>>} */
     const snapshots = []
     for (const scenario of SCENARIOS) snapshots.push(await runPipeline(scenario))
@@ -295,24 +241,19 @@ describe("影子运行：对比本身是有效的（防止假阳性）", () => {
 })
 
 /**
- * 基线快照：为阶段 2 第 5 步（删掉旧路径）留下“正确行为”的书面依据。
+ * 基线对照：流水线必须与冻结下来的基线逐项一致。
  *
- * 影子对比能证明两侧一致，但一旦删掉 `deal()`，那份证明就随代码一起消失了——
- * 于是“以后没人能确认现在是对的”。所以趁旧实现还在、对比全绿的时候，
- * 把**旧侧**的结果冻结成 fixture：那是经两侧互证过的行为，
- * 而不是“新侧当时碰巧的输出”。
+ * # 基线的来历
  *
- * 平时这个块只跑一遍（不写文件）；要重新录制得显式设 `RECORD_SHADOW=1`，
- * 以免一次无意间的运行就把基线改掉。
- */
-/**
- * 基线对照：新流水线必须与冻结下来的基线逐项一致。
+ * 阶段 2 做影子对比时（旧 `deal()` 与新流水线逐项比），把**经两侧互证过**的旧侧结果
+ * 录成了 fixture——那是当时唯一能拿到“正确行为”的途径。阶段 2 第 5 步删掉旧路径后，
+ * 这份 JSON 就成了那条已验证行为的**唯一书面依据**：没有它，以后没人能确认现在是对的。
  *
- * 与上面的影子对比的区别：影子对比要求**旧实现与它一致**，一旦删掉 `deal()`，
- * 它就没了；而基线是**写下来的期望**，旧代码不在了也照样能跑。
- * 两者现在同时存在，正好互相印证：两个都绿，说明基线录对了。
+ * 也正因为如此，录制从“抄一份旧实现的结果”变成了“接受当前的输出”——
+ * 它不再能自证正确。所以录制必须显式设 `RECORD_BASELINE=1`，
+ * 且提交前要逐行看清 JSON 的差异：那些差异就是行为变更本身。
  *
- * 两侧都过一遍 JSON 再比：基线里存的是 JSON，`undefined` 会被丢掉，
+ * 比对前都过一遍 JSON：基线里存的是 JSON，`undefined` 会被丢掉，
  * 不过这一道会让“值为 undefined 的字段”在两边表现不一而假装相等。
  */
 describe("基线对照：与冻结的基线一致", () => {
@@ -329,7 +270,7 @@ describe("基线对照：与冻结的基线一致", () => {
 
     expect(
       missing,
-      `这些场景不在基线里，请用 RECORD_SHADOW=1 重录：\n${missing.join("\n")}`,
+      `这些场景不在基线里，请用 RECORD_BASELINE=1 重录并审阅 diff：\n${missing.join("\n")}`,
     ).toEqual([])
   })
 
@@ -340,12 +281,13 @@ describe("基线对照：与冻结的基线一致", () => {
     })
 })
 
-describe("基线快照（给阶段 2 第 5 步用）", () => {
-  it("RECORD_SHADOW=1 时把两侧一致的结果写成基线快照", async () => {
-    const snapshots = {}
-    for (const scenario of SCENARIOS) snapshots[scenario.name] = await runLegacy(scenario)
+describe("基线快照：录制", () => {
+  it("RECORD_BASELINE=1 时把当前流水线的结果写成基线快照", async () => {
+    if (!process.env.RECORD_BASELINE) return
 
-    if (!process.env.RECORD_SHADOW) return
+    /** @type {Record<string, unknown>} */
+    const snapshots = {}
+    for (const scenario of SCENARIOS) snapshots[scenario.name] = await runPipeline(scenario)
 
     const file = fileURLToPath(
       new URL("../../fixtures/pipeline/baseline-snapshots.json", import.meta.url),

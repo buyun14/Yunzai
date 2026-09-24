@@ -217,7 +217,7 @@ plugins/<目录名>/plugin.json
 | Q3 | schema 校验器 | **手写受控子集**（`lib/plugins/schema.js`） | 需要**同构到浏览器**（阶段 6 的 WebUI 要复用同一份实现做表单校验），且行为必须在两端完全一致。因此不引入 `ajv` |
 | Q4 | 元数据文件格式 | **`plugin.json`** | 插件目录内已有 `package.json` 用于依赖声明，混在一起会让“依赖”与“元数据”两个关注点耦合 |
 | Q5 | 元数据粒度 | **目录级**（`plugins/<目录名>/plugin.json`） | 一个目录就是一个可分发的包；且 `plugins/system/` 这类散装目录下 9 个文件共享同一份元数据，无需重复 |
-| Q6 | 配置如何注入插件 | **挂在类上的 `contract` + 插件基类的 `get contract()`** | 每条消息都会用 `new i.class(e)` 新建实例（`loader.deal()`），只挂实例的话插件根本拿不到配置；构造函数参数方案也无法覆盖这条路径 |
+| Q6 | 配置如何注入插件 | **挂在类上的 `contract` + 插件基类的 `get contract()`** | 每条消息都会用 `new i.class(e)` 新建实例（改造前在 `loader.deal()` 里，现在在 `lib/pipeline/dispatch.js` 的 `instantiate()`），只挂实例的话插件根本拿不到配置；构造函数参数方案也无法覆盖这条路径 |
 | Q7 | `scope` / `when` / `onDenied` 何时落地 | **推迟到阶段 2** | 没有消费者（调度器在阶段 2 才重写），提前引入就是无法验证的推测设计 |
 
 ---

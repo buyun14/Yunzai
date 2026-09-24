@@ -169,8 +169,10 @@ flowchart TD
 - [x] 阶段 0-2：工具链与 CI 骨架（见 `00-prep.md`）
 - [x] 阶段 0-3：标定与诊断基线（启动基线已采集；事件 fixture 改为阶段 2 前置任务）
 - [x] 阶段 1：插件契约（`plugin.json` + 受控 schema + 版本闸门 + 契约注入）
-- [ ] 阶段 2：流水线（**只剩第 5 步**——清理旧路径 `deal()` 与 `legacy_pipeline` 开关；
-      它需要浸泡期，等阶段 4 的 `lib/message/` 在真机上跑一段再动手，见 `02-pipeline.md` §7.1）
+- [x] 阶段 2：流水线（**第 5 步「清理旧路径」已于 2026-09-24 完成**：`deal()` / `dealEvent()` /
+      `checkLimit()` / `setLimit()` / `onlyReplyAt()` 与 `bot.legacy_pipeline` 开关均已删除，
+      `lib/event-bus.js` 只剩一条路径；旧侧用例退役，行为基线转由
+      `tests/fixtures/pipeline/baseline-snapshots.json` 守卫，见 `02-pipeline.md` §7.1）
 - [x] 阶段 3：工程化（覆盖率 95.22% + `smoke.yml` + ESLint 0/0 与 typecheck 0 处均已入 CI 并阻塞；
       首次真实 CI 曾四条矩阵腿全挂在 typecheck，根因是 `#miao` 的环境依赖，
       修完后四条腿全绿，见 `03-engineering.md` §3.6/§5）

@@ -1,26 +1,21 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 import { ComponentType } from "../../../lib/message/component.js"
 import { applyLegacyFields } from "../../../lib/message/legacy.js"
 import { parseComponents } from "../../../lib/message/parse.js"
-import { PluginsLoader } from "../../../lib/plugins/loader.js"
-import { listFixtures, makeEvent } from "../../helpers/events.js"
 
 /**
  * `lib/message/legacy.js` 的单测。
  *
  * 对应的验收项（`04-message-adapter.md` §6）：给定 `Component[]`，派生的
- * `e.msg` / `e.img` / `e.atBot` / … 必须与**改造前的实现**一致——
- * 这里直接用旧路径 `PluginsLoader.dealEvent()` 当金标准，跑全部事件样本。
+ * `e.msg` / `e.img` / `e.atBot` / … 必须与**改造前的实现**一致。
  *
- * 另有一组定点用例，专门钉住那些"看起来该改、但一改就是行为变更"的地方。
+ * 改造前这里还有一组「与旧实现逐字段比对」的用例，金标准是旧 `PluginsLoader.dealEvent()`。
+ * 阶段 2 第 5 步删掉旧路径后那组用例无从运行——它们守护的行为已转由
+ * `tests/fixtures/pipeline/baseline-snapshots.json`（逐场景逐字段的基线快照）承担。
+ * 留下的这组定点用例钉住的是那些"看起来该改、但一改就是行为变更"的地方。
  */
 
-// 与 shadow.test.js 同样的理由：`lib/plugins/loader.js` 会静态拉进 runtime，
-// 而 runtime 又会拉进 puppeteer 与渲染器加载器——后者的模块顶层就用了全局 `logger`，
-// 而全局替身是 `beforeAll` 才装的，于是导入阶段就炸。跑 `dealEvent` 用不到 runtime。
-vi.mock("../../../lib/plugins/runtime.js", () => ({ default: { init: async () => {} } }))
-
-/** 由消息解析产出的字段（`dealEvent` 的这一段与本模块的职责完全相同） */
+/** 由消息解析产出的字段 */
 const DERIVED_FIELDS = ["msg", "img", "at", "atBot", "reply_id", "file"]
 
 /**
@@ -31,36 +26,6 @@ const DERIVED_FIELDS = ["msg", "img", "at", "atBot", "reply_id", "file"]
  */
 function derived(event) {
   return Object.fromEntries(DERIVED_FIELDS.map(field => [field, event[field]]))
-}
-
-/**
- * 旧实现：只跑 `PluginsLoader.dealEvent()` 的解析段。
- *
- * `botAlias` 清空是刻意的：`dealEvent` 在解析之后还会做别名剥离，那一步已经由
- * `NormalizeStage.stripAlias()` 承担，不属于 `legacy.js` 的职责。清空之后
- * 别名循环成为空操作，`msg` 停在"刚解析完"的状态，两边才可比。
- *
- * @param {string} fixture 样本名
- * @returns {Record<string, unknown>} 字段子集
- */
-function legacyDerived(fixture) {
-  const loader = new PluginsLoader()
-  const { event } = makeEvent(fixture)
-  loader.dealEvent(event, { botAlias: [], onlyReplyAt: 0 })
-  return derived(event)
-}
-
-/**
- * 新实现：`parseComponents()` + `applyLegacyFields()`。
- *
- * @param {string} fixture 样本名
- * @param {{ slashToHash?: boolean }} [options] 传给 `applyLegacyFields`
- * @returns {Record<string, unknown>} 字段子集
- */
-function newDerived(fixture, options) {
-  const { event } = makeEvent(fixture)
-  applyLegacyFields(event, parseComponents(event.message), options)
-  return derived(event)
 }
 
 /**
@@ -76,17 +41,6 @@ function derive(message, extra = {}, options = {}) {
   applyLegacyFields(event, parseComponents(message), options)
   return event
 }
-
-describe("与旧实现（PluginsLoader.dealEvent）逐字段一致", () => {
-  for (const fixture of listFixtures())
-    it(fixture, () => {
-      expect(newDerived(fixture)).toEqual(legacyDerived(fixture))
-    })
-
-  it("样本清单非空，否则这条用例是假的", () => {
-    expect(listFixtures().length).toBeGreaterThanOrEqual(14)
-  })
-})
 
 describe("定点用例：语义陷阱", () => {
   it("纯图片消息的 msg 保持 undefined，而不是空串", () => {

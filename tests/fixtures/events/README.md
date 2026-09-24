@@ -50,7 +50,7 @@
 | `group-reply-with-file.json` | `reply` + `file` 段：`reply_id` / `getReply` / `file` |
 | `group-json-card.json` | `json` 段被序列化进 `msg` |
 | `group-unsupported-segments.json` | `record` / `poke` 等**当前不被处理**的段类型——用于固定"不改变行为"的边界 |
-| `group-muted.json` | 群全员禁言 + 成员非管理 → `checkLimit` 早退 |
+| `group-muted.json` | 群全员禁言 + 成员非管理 → 限流检查的禁言早退 |
 | `private-command.json` | 私聊：验证 `isPrivate` 的赋值时机（见 `02-pipeline.md` §2.2 约束 a） |
 | `notice-group-increase.json` | `notice.group.increase`：验证 `post_type`/`notice_type` 的层级匹配 |
 | `notice-group-decrease.json` | `notice.group.decrease` |

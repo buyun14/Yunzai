@@ -55,7 +55,7 @@ describe("事件样本结构", () => {
     }
   })
 
-  it("群类样本都带 checkLimit 会读取的群状态字段", () => {
+  it("群类样本都带禁言与权限判断需要的群状态字段", () => {
     for (const name of listFixtures()) {
       const fixture = readFixture(name)
       if (!fixture.group) continue

@@ -12,20 +12,18 @@ vi.mock("../../lib/plugins/runtime.js", () => ({ default: { init: async () => {}
  * 造一个总线。
  *
  * `loader` 必须是**完整**的替身：流水线在运行时要读 `priority` 与 `count`，
- * 只给 `deal` 会让第一条消息就报 `count is not a function`。
+ * 缺一个第一条消息就报错。
  *
  * @param {object} [opts] 选项
  * @param {object} [opts.cfg] 配置替身覆盖项
- * @param {boolean} [opts.legacy] 是否强制旧路径
  * @returns {{ bus: EventBus, loader: object }} 总线与加载器替身
  */
 function makeBus(opts = {}) {
-  const loader = Object.assign(createLoaderStub(), { deal: vi.fn(async () => "legacy") })
+  const loader = createLoaderStub()
   const bus = new EventBus({
     loader,
     cfg: createConfigStub(opts.cfg),
     runtime: { init: async () => {} },
-    legacy: opts.legacy,
   })
   return { bus, loader }
 }
@@ -39,76 +37,39 @@ function eventFor(selfId) {
   return event
 }
 
-describe("EventBus：新旧路径开关", () => {
-  it("缺省走新流水线，不调用 loader.deal", async () => {
-    const { bus, loader } = makeBus()
-    expect(bus.isLegacy()).toBe(false)
-
-    await bus.commit(eventFor(12345))
-    expect(loader.deal).not.toHaveBeenCalled()
-  })
-
-  it("bot.legacy_pipeline 为 true 时走旧路径", async () => {
-    const { bus, loader } = makeBus({ cfg: { bot: { legacy_pipeline: true } } })
-    expect(bus.isLegacy()).toBe(true)
-
-    await expect(bus.commit(eventFor(12345))).resolves.toBe("legacy")
-    expect(loader.deal).toHaveBeenCalledTimes(1)
-  })
-
-  it("bot.legacy_pipeline 为 false 时走新流水线", async () => {
-    const { bus, loader } = makeBus({ cfg: { bot: { legacy_pipeline: false } } })
-    await bus.commit(eventFor(12345))
-    expect(loader.deal).not.toHaveBeenCalled()
-  })
-
-  it("构造参数 legacy 可以覆盖配置（测试用）", async () => {
-    const { bus, loader } = makeBus({ cfg: { bot: { legacy_pipeline: true } }, legacy: false })
-    await bus.commit(eventFor(12345))
-    expect(loader.deal).not.toHaveBeenCalled()
-  })
-
-  it("开关是每次提交时读的，改配置立刻生效", async () => {
-    const { bus, loader } = makeBus()
-    const event = eventFor(12345)
-    await bus.commit(event)
-
-    bus.legacyOverride = true
-    await bus.commit(event)
-    expect(loader.deal).toHaveBeenCalledTimes(1)
-  })
-
-  it("开关状态变化时留下日志，便于排查「改了开关没反应」", async () => {
+describe("EventBus：装配档案时留下日志", () => {
+  it("每个档案装配一次流水线并打一条日志", async () => {
     const { bus } = makeBus()
     /**
-     * 只取与开关有关的日志——流水线自己还会打 `暂无插件处理` 之类的 debug 行。
+     * 只取与装配有关的日志——阶段自己还会打 `暂无插件处理` 之类的 debug 行。
      *
      * @param {number} from 起始下标
      * @returns {unknown[][]} 匹配的日志
      */
-    const switchLogs = from =>
+    const assemblyLogs = from =>
       globalThis.Bot.logs
         .slice(from)
-        .filter(args => JSON.stringify(args).match(/流水线|legacy_pipeline/))
+        .filter(args => JSON.stringify(args).includes("已装配消息流水线"))
 
     const before = globalThis.Bot.logs.length
 
     await bus.commit(eventFor(12345))
-    expect(switchLogs(before)).toHaveLength(1)
-    expect(JSON.stringify(switchLogs(before)[0])).toContain("新版消息流水线")
+    expect(assemblyLogs(before)).toHaveLength(1)
+    expect(JSON.stringify(assemblyLogs(before)[0])).toContain("12345")
 
-    // 状态没变则不重复打
+    // 同一个档案不重复打（它与阶段实例一一对应）
     await bus.commit(eventFor(12345))
-    expect(switchLogs(before)).toHaveLength(1)
+    expect(assemblyLogs(before)).toHaveLength(1)
 
-    // 状态变化时再打一条，且措辞指明回退开关
-    bus.legacyOverride = true
+    // 新档案各打一条，便于排查“某个账号的消息没反应”
+    await bus.commit(eventFor(54321))
+    expect(assemblyLogs(before)).toHaveLength(2)
+  })
+
+  it("旧路径开关已删除，配置里残留的 bot.legacy_pipeline 不影响路由", async () => {
+    const { bus } = makeBus({ cfg: { bot: { legacy_pipeline: true } } })
     await bus.commit(eventFor(12345))
-
-    const logs = switchLogs(before)
-    expect(logs).toHaveLength(2)
-    expect(JSON.stringify(logs[1])).toContain("legacy_pipeline")
-    expect(logs[1][0]).toBe("warn")
+    expect(bus.profiles.get("12345").scheduler).toBeInstanceOf(PipelineScheduler)
   })
 })
 
@@ -220,12 +181,6 @@ describe("EventBus：初始化", () => {
     expect(bus.profiles.get("12345").scheduler).toBeInstanceOf(PipelineScheduler)
   })
 
-  it("旧路径下 prewarm 不建任何档案", async () => {
-    const { bus } = makeBus({ legacy: true })
-    await bus.prewarm(12345)
-    expect(bus.profiles.size).toBe(0)
-  })
-
   it("shutdown 清空全部档案", async () => {
     const { bus } = makeBus()
     await bus.commit(eventFor(12345))
@@ -234,7 +189,7 @@ describe("EventBus：初始化", () => {
   })
 })
 
-describe("EventBus：与旧路径等价性", () => {
+describe("EventBus：调用契约", () => {
   it("新路径不改写 self_id，档案路由与 cfg.getGroup 的键空间一致", async () => {
     const { bus } = makeBus()
     const event = eventFor(12345)
@@ -242,7 +197,7 @@ describe("EventBus：与旧路径等价性", () => {
     expect(event.self_id).toBe(12345)
   })
 
-  it("commit 返回 Promise，与旧 deal() 一样不保证已处理完（调用方决定是否 await）", async () => {
+  it("commit 返回 Promise，不保证已处理完（调用方决定是否 await）", async () => {
     const { bus } = makeBus()
     const result = bus.commit(eventFor(12345))
     expect(result).toBeInstanceOf(Promise)

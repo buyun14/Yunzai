@@ -117,14 +117,12 @@ em(name = "", data = {}) {
 > 阶段 2 把这段逻辑抽成了 `NormalizeStage`（`lib/pipeline/stages/normalize.js`），
 > 于是 v1 实际改的是 **`NormalizeStage.parseMessage()`**。
 >
-> 关键是 **旧路径 `loader.dealEvent()` 一行未动**，两边仍然各跑各的实现。
-> 这不是遗漏，而是刻意的：阶段 2 建立的影子对比（旧 `deal()` vs 新流水线，逐决策点比较）
-> 只有在两侧实现独立时才有意义。v1 之后影子对比**依然全绿**，这恰好成为
-> "零行为变化"最强的证据——比任何逐字段断言都硬。
-> 阶段 2 第 5 步删掉旧路径时，这份重复才会消失。
->
 > 同时按本阶段的验收要求把 `group-unsupported-segments.json` 扩到了
 > `record` / `video` / `forward` / `poke` 四段，并新增一条影子场景专门盯它。
+>
+> **后续（2026-09-24）**：阶段 2 第 5 步已删掉旧路径与那份重复实现，
+> `NormalizeStage.parseMessage()` 成为唯一实现；两侧互证得到的行为已冻结为
+> `tests/fixtures/pipeline/baseline-snapshots.json`。
 
 > **真机浸泡（2026-09-24，SnowLuma v1.14.19 + OneBot v11）：通过。**
 >
