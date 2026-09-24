@@ -74,6 +74,43 @@
 | 一致性保障 | CI 中执行生成命令后 `git diff --exit-code`，契约与代码不同步即失败 |
 | 手写外观层 | `dashboard/src/api/v1.ts` 包一层（区分手写与生成，同 AstrBot） |
 
+> **落地情况（2026-09-24）：契约文件已落地，但一致性保障换了做法。**
+>
+> `docs/openapi.yaml` 已写完（5 个接口 + 鉴权 + 错误形状 + 全套 schema）。
+>
+> **偏离：没有引入 `@hey-api/openapi-ts`，也没做「生成后 `git diff --exit-code`」。**
+>
+> 那个方案防的是**契约与生成物**漂移，防不住真正的风险：**契约与服务器漂移**。
+> 而且生成物的落地位置（`dashboard/src/api/generated/`）在前端还不存在时无处可放，
+> 提前引入该 devDep 就是为不存在的需求付成本（`AGENTS.md` 规则 5）。
+>
+> 换成更直接的检查：`tests/unit/web/openapi.test.js` 解析契约，逐项对着
+> **真实路由**与**真实响应体**比——路径与方法双边一致、`200` 响应的顶层字段
+> 双向一致（契约写了却没返回、返回了却没写，都红）、嵌套对象同样逐字段核、
+> 枚举值与实现一致。它跑在 `pnpm test` 里，因此同样是 CI 阻塞项。
+>
+> 前端落地后可以把「生成 + diff」叠加上来，两者互补：一个守契约↔服务器，
+> 一个守契约↔客户端。
+>
+> 顺带改了一处接口形状：单文件从 `?file=x.yaml` 改成路径参数 `/config/{name}`。
+> 同一个路径两种响应体在 OpenAPI 里只能写成 `oneOf`，生成客户端会得到一个联合类型；
+> 前端还不存在，此时改比以后改便宜。
+>
+> 真机验证（2026-09-24，临时改配置、验完已还原）：
+>
+> ```
+> GET /api/v1/config                        → 200（9 个文件）
+> GET /api/v1/config/server.yaml            → 200 status=both redacted=["auth"] auth="***"
+> GET /api/v1/config/..%2F..%2Fpackage.json → 400 bad_request（URL 解码后的穿越也被白名单拦住）
+> GET /api/v1/config/whatever.yaml          → 404 not_found
+> GET /api/v1/config/server.yaml（不带令牌）  → 401
+> ```
+>
+> ⚠️ 这一轮把`dev-notes.md` §1 的另一条坑坐实了：把长跑进程接进
+> `Select-Object -First 1` 之后，PowerShell 会在凑满一条时掐断管道，`pnpm` 被杀而 node
+> 子进程留下——那个实例仍在监听端口、`/ready` 与 `/status` 都正常，**只有 `/config`
+> 永远不响应**。差一点就去查 `collectDiff()` 的死锁了（在隔离环境里跑它只要 34ms）。
+
 ### 3.3 安全（必须与功能同期上线，不能"以后再加"）
 
 - [ ] **启用 WebUI 时强制要求 `cfg.server.auth` 非空**。为空时：`/dashboard` 与 `/api/v1/*` 不挂载，并在启动日志中明确告知如何配置。绝不能静默放开。
@@ -207,7 +244,7 @@
 > | `/api/v1/status` | 版本、在线状态、运行时长、内存、运行时、插件计数、适配器列表、账号列表 |
 > | `/api/v1/plugins` | 已加载插件的**执行顺序**（即 `priority` 排序后的）与规则摘要 |
 > | `/api/v1/config` | 文件清单 + 与出厂默认的差异**条数** |
-> | `/api/v1/config?file=x.yaml` | 该文件在用户侧与默认侧的**值**（密钥键已脱敏） |
+> | `/api/v1/config/{name}` | 该文件在用户侧与默认侧的**值**（密钥键已脱敏） |
 > | `/api/v1/logs` | SSE 实时日志流（先回放最近 200 条，之后实时推；每 15 秒一个心跳） |
 >
 > 三个设计决定：
@@ -299,7 +336,8 @@
       与 `/exit`（`app stop` 确实让进程退出了）
       ⚠️ **缺口**：没有直接调用 `lib/bot.js` 里那三个处理器的单测——导入它会撞上
       测试环境的 O6（`logger.defaultLogger`），所以那一条只能靠真跑覆盖
-- [ ] CI 中 `pnpm generate:api` 后 `git diff --exit-code` 通过（契约与代码同步）
+- [x] CI 中契约与代码同步（见 §3.2：**偏离原方案**，改为直接断言契约↔路由/响应体一致，
+      跑在 `pnpm test` 里，同样是阻塞项）
 - [x] 日志 SSE 在客户端断开后服务端正确释放（无句柄泄漏，用连续 100 次连接/断开验证）
       —— 有单测：100 次连接/断开后订阅者始终归零；另一条验证"断开后心跳定时器真的被停掉"
       （等 16 个心跳周期再断言没有新写入，而不是贴着周期断言：Windows 与 CI runner 的

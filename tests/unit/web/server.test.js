@@ -334,6 +334,25 @@ describe("安全中间件确实挂在链上", () => {
     expect(JSON.parse(res.text).message).toBe("坏掉了")
   })
 
+  it("未预期的错误返回 500 JSON（不是宿主 serverError 的空 200）", async () => {
+    const { webui } = makeWebUI()
+    const app = express()
+    app.use(webui.earlyProbe.bind(webui))
+    app.use(`${API_PREFIX}/boom`, (req, res, next) => next(new Error("没预料到的")))
+    webui.mount(app)
+    app.use((req, res) => res.status(418).send("宿主兜底"))
+
+    const res = await request(await serve(app), `${API_PREFIX}/boom`)
+    expect(res.status).toBe(500)
+    expect(JSON.parse(res.text)).toMatchObject({ code: "internal_error", message: "没预料到的" })
+
+    // 错误也进了宿主的日志，否则排查时什么都看不到。
+    // 断言用 String(err) 而不是 JSON.stringify —— Error 的可枚举属性是空的
+    const logged = globalThis.Bot.logs.at(-1)
+    expect(logged[1][0]).toBe("WebUI API 错误")
+    expect(String(logged[1][1])).toContain("没预料到的")
+  })
+
   it("限流生效：被持续打时会返回 429 + Retry-After", async () => {
     const { webui } = makeWebUI()
     const url = await serve(hostApp(webui))

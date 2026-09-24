@@ -182,7 +182,7 @@ describe("GET /config", () => {
       { "bot.yaml": "log_level: info\nother: 1\n", "only-default.yaml": "b: 1\n" },
     )
 
-    const { status, json } = await call(createConfigHandler(dirs), { query: {} })
+    const { status, json } = await call(createConfigHandler(dirs), {})
     expect(status).toBe(200)
     expect(json.files.map(file => file.name)).toEqual([
       "bot.yaml",
@@ -204,7 +204,7 @@ describe("GET /config", () => {
       { "server.yaml": "port: 2536\nauth:\n" },
     )
 
-    const { json } = await call(createConfigHandler(dirs), { query: { file: "server.yaml" } })
+    const { json } = await call(createConfigHandler(dirs), { params: { name: "server.yaml" } })
     expect(json.status).toBe("both")
     expect(json.user.port).toBe(2536)
     expect(json.user.auth).toBe("***")
@@ -217,7 +217,7 @@ describe("GET /config", () => {
     const handler = createConfigHandler(dirs)
 
     for (const file of ["../package.json", "a/b.yaml", "..\\b.yaml", "bot.txt", "C:\\x.yaml"]) {
-      const { status, json } = await call(handler, { query: { file } })
+      const { status, json } = await call(handler, { params: { name: file } })
       expect(status, `${file} 应该被拒`).toBe(400)
       expect(json.code).toBe("bad_request")
     }
@@ -225,7 +225,9 @@ describe("GET /config", () => {
 
   it("文件不存在时返回 404", async () => {
     const dirs = await makeConfigDirs({}, {})
-    const { status, json } = await call(createConfigHandler(dirs), { query: { file: "nope.yaml" } })
+    const { status, json } = await call(createConfigHandler(dirs), {
+      params: { name: "nope.yaml" },
+    })
     expect(status).toBe(404)
     expect(json.code).toBe("not_found")
   })
@@ -233,7 +235,7 @@ describe("GET /config", () => {
   it("目录不存在时清单为空而不抛错", async () => {
     const { status, json } = await call(
       createConfigHandler({ configDir: "不存在的目录/x", defaultsDir: "不存在的目录/y" }),
-      { query: {} },
+      {},
     )
     expect(status).toBe(200)
     expect(json.files).toEqual([])

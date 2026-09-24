@@ -1,0 +1,538 @@
+openapi: 3.1.0
+
+info:
+  title: Yunzai WebUI API
+  version: "1.0.0"
+  description: |-
+    TRSS-Yunzai 的运维面板接口。v1 是**只读**的：所有接口都是 `GET`。
+
+    ## 启用
+    在 `config/config/server.yaml` 里设置 `server.webui.enable: true`，且 `server.auth`
+    必须非空——否则**不挂载** `/dashboard` 与 `/api/v1/*`（启动日志会给出可照抄的配置）。
+    默认是关闭的，且旧配置里没有这个键，所以升级后不会自己打开。
+
+    ## 鉴权
+    与宿主既有路由共用 `serverAuth`：`server.auth` 是「请求头名 → 令牌」的映射，
+    **请求头或查询参数任一键匹配**即通过，否则 401。头名由配置决定，
+    下面的 `Authorization` 只是一个默认示例。
+
+    ## 限流与体积
+    `/api/v1/*` 统一挂一个 per-IP 令牌桶（默认突发 60 次、每秒回填 10 个）与 1MB 请求体上限。
+
+    ## 错误形状
+    统一为 `{ code, message }`。唯一的例外是 **401**：它由宿主的 `serverAuth` 产生，
+    返回的是纯文本（`Unauthorized`），且会同时写入一条访问日志。
+
+    ## 契约与实现的一致性
+    `tests/unit/web/openapi.test.js` 会对照本文件与真实路由/真实响应做检查：
+    路径与方法必须双边一致，`200` 响应的顶层字段必须与实际返回的字段一致。
+    改接口时**必须同步改这里**，否则测试会红。
+
+servers:
+  - url: http://localhost:2536
+    description: 默认端口，见 `server.yaml` 的 `server.port`
+
+tags:
+  - name: 状态
+  - name: 配置
+  - name: 日志
+
+security:
+  - serverAuth: []
+
+paths:
+  /api/v1/ready:
+    get:
+      tags: [状态]
+      summary: 就绪探针
+      description: |-
+        前端等待页只依赖这一个接口。
+
+        注意**启动期这个请求到不了这里**：`serverAuth` 是中间件链的第一个，
+        `stat.online !== 2` 时它会把请求挂起等 `online` 事件，所以任何探针都到不了终点。
+        WebUI 因此在 `serverAuth` 之前放了一个早期探针：启动期由它就地答复 `503`。
+        换句话说，走到本接口就说明宿主已经上线。
+      operationId: ready
+      responses:
+        "200":
+          description: 宿主已上线
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ready"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Starting"
+
+  /api/v1/status:
+    get:
+      tags: [状态]
+      summary: 状态总览
+      description: |-
+        读的都是内核直接持有的数据，不自己算业务量（按消息/群/用户的统计在 `#状态` 命令那边）。
+        与 `#状态` 命令**不共享实现**：那边产出的是给人看的文本，这里要的是稳定契约。
+      operationId: status
+      responses:
+        "200":
+          description: 状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/plugins:
+    get:
+      tags: [状态]
+      summary: 已加载的插件
+      description: |-
+        数据来自内存里排好序的 `priority`，**不是**磁盘上的 `plugin.json`：
+        面板要回答的是"现在生效的是哪些"，而插件被 `disable` 后 `plugin.json` 仍在磁盘上。
+
+        数组顺序就是**执行顺序**（按 `priority` 升序），保持原样不做排序。
+      operationId: plugins
+      responses:
+        "200":
+          description: 插件列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plugins"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/config:
+    get:
+      tags: [配置]
+      summary: 配置文件清单
+      description: |-
+        用户配置目录与出厂默认目录里 yaml 文件的**并集**，每个文件附上与默认的差异条数。
+
+        只给条数不给值：值里可能有密钥，而清单会被反复轮询。要看值用
+        `/api/v1/config/{name}`。
+      operationId: configList
+      responses:
+        "200":
+          description: 文件清单
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/config/{name}:
+    get:
+      tags: [配置]
+      summary: 单个配置文件
+      description: |-
+        返回该文件在用户侧与默认侧的**值**（已解析的 YAML，不是原文）。
+
+        ## 脱敏
+        看起来像密钥的键（`pass`/`password`/`secret`/`token`/`auth`/`credential`/`cookie`）
+        会被**整值**替换成 `***`，并在 `redacted` 里列出路径。
+        刻意不遮 `key`：`https.key` 是证书**路径**，遮了反而难排查。
+
+        静默打码比不打码更糟——用的人会以为配置本身就是 `***`，所以必须回传被遮的路径。
+      operationId: configFile
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: |-
+            配置文件名。白名单是 `^[\w.-]+\.ya?ml$`，且 `basename` 必须等于原名
+            （所以 `../` 与绝对路径都过不去）。
+          schema:
+            type: string
+            pattern: "^[\\w.-]+\\.ya?ml$"
+            examples: [bot.yaml, server.yaml]
+      responses:
+        "200":
+          description: 两侧的值
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigFile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/logs:
+    get:
+      tags: [日志]
+      summary: 实时日志流（SSE）
+      description: |-
+        `text/event-stream`。连上后先**回放最近若干条**（默认 200，可用 `?limit=` 调整），
+        之后实时推送；每 15 秒发一个注释行 `: ping` 保活。
+
+        每个事件形如：
+
+        ```
+        event: log
+        data: {"time":1758700000000,"level":"MARK","category":"command","message":"…"}
+        ```
+
+        - `level`：log4js 的等级（`TRACE`/`DEBUG`/`INFO`/`WARN`/`ERROR`/`FATAL`/`MARK`）
+        - `category`：发日志的 logger 名（`message` 是默认 logger 的名字）
+        - `message`：已去掉 ANSI 颜色码
+
+        选 SSE 而不是 WebSocket 的理由见 `docs/refactor/06-webui.md` §3.5：单向、自动重连、
+        不需要额外握手。日志来源是给 log4js 追加的 appender，与终端是**同一份**事件
+        （落盘文件里没有 `info`/`debug`，那是选择 appender 而不是 tail 文件的原因）。
+
+        ## 客户端注意
+        响应头带 `Cache-Control: no-cache, no-transform`——宿主的 `compression()`
+        会把小于阈值的分片攒在缓冲区里，而 SSE 全是小分片。
+        中间有反向代理时，链路要关掉对 `text/event-stream` 的缓冲。
+      operationId: logs
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: 回放条数。非法值或超过上限时退回上限。
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 200
+      responses:
+        "200":
+          description: SSE 流（长连接；断开时服务端释放订阅）
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: 每帧是一个 log 事件（data 行里是 JSON），或一行保活注释
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+components:
+  securitySchemes:
+    serverAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: |-
+        头名与令牌都来自 `server.auth` 配置（键名 = 请求头名）。这里的 `Authorization`
+        只是默认示例；查询参数同名匹配也可以。
+  responses:
+    Unauthorized:
+      description: |-
+        鉴权失败。由宿主的 `serverAuth` 产生，响应体是**纯文本** `Unauthorized`，
+        同时会写一条 `HTTP … 鉴权失败` 的访问日志。
+      content:
+        text/plain:
+          schema:
+            type: string
+            examples: [Unauthorized]
+    RateLimited:
+      description: 超过 per-IP 令牌桶。`Retry-After` 是建议等待的秒数。
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: 建议等待秒数
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PayloadTooLarge:
+      description: 请求体超过上限（默认 1MB，或全局解析器的 100KB）。
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    LengthRequired:
+      description: multipart 请求缺少 `Content-Length`（没有长度就没有上界）。
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BadRequest:
+      description: 请求不合法（文件名不合白名单、`Content-Length` 不是数字、JSON 解析失败等）。
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: 路径或资源不存在。
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalError:
+      description: 未预期的错误。响应体仍是 JSON——刻意不交给宿主的兜底处理，那里只 `res.end()`。
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Starting:
+      description: |-
+        宿主尚未上线（`stat.online !== 2`）。由 WebUI 的早期探针产生，`Retry-After` 固定为 2 秒。
+        `/dashboard` 上的同种情况会返回一个会自动刷新的一页提示。
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: 建议等待秒数
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: |-
+            稳定的机器可读码：`bad_request` / `not_found` / `rate_limited` /
+            `payload_too_large` / `length_required` / `starting` / `internal_error`
+          examples: [bad_request]
+        message:
+          type: string
+          description: 给人看的说明（会随版本变化，不要用它做判断）
+      additionalProperties: false
+
+    Ready:
+      type: object
+      required: [ready, uptime]
+      properties:
+        ready:
+          type: boolean
+          const: true
+        online:
+          type: integer
+          description: 宿主的 `stat.online`（`2` = 已上线）
+        uptime:
+          type: integer
+          description: 进程运行秒数
+
+    Status:
+      type: object
+      required: [version, uptime, memory, runtime, plugins, adapters, accounts]
+      properties:
+        version:
+          type: string
+          description: 宿主版本（读 `package.json`）
+        online:
+          type: integer
+        uptime:
+          type: integer
+        memory:
+          $ref: "#/components/schemas/StatusMemory"
+        runtime:
+          $ref: "#/components/schemas/StatusRuntime"
+        plugins:
+          $ref: "#/components/schemas/StatusPlugins"
+        adapters:
+          type: array
+          description: 已注册的适配器（`Bot.adapter`）
+          items:
+            type: object
+            properties:
+              id:
+                type: [string, "null"]
+              name:
+                type: [string, "null"]
+        accounts:
+          type: array
+          description: 宿主的 bot 账号。v1 只列 uin，不猜在线状态。
+          items:
+            type: object
+            required: [uin]
+            properties:
+              uin:
+                type: string
+
+    StatusMemory:
+      type: object
+      required: [rss, heapUsed, heapTotal]
+      properties:
+        rss:
+          type: number
+          description: MB，两位小数
+        heapUsed:
+          type: number
+        heapTotal:
+          type: number
+
+    StatusRuntime:
+      type: object
+      required: [node, platform, arch, pid]
+      properties:
+        node:
+          type: string
+          examples: [v24.19.0]
+        platform:
+          type: string
+          examples: [linux, win32]
+        arch:
+          type: string
+          examples: [x64, arm64]
+        pid:
+          type: integer
+
+    StatusPlugins:
+      type: object
+      required: [handlers, loaded, tasks]
+      properties:
+        handlers:
+          type: integer
+          description: 加载器里的调度条目数（= `priority.length`）
+        loaded:
+          type: integer
+          description: 插件**类**的数量
+        tasks:
+          type: integer
+          description: 定时任务数
+
+    Plugins:
+      type: object
+      required: [total, plugins]
+      properties:
+        total:
+          type: integer
+        plugins:
+          type: array
+          items:
+            $ref: "#/components/schemas/Plugin"
+
+    Plugin:
+      type: object
+      required: [name, namespace, key, priority, description, events, rules]
+      properties:
+        name:
+          type: [string, "null"]
+          description: 插件展示名
+        namespace:
+          type: [string, "null"]
+        key:
+          type: [string, "null"]
+          description: 插件文件与类的标识，与日志里出现的那个一致
+        priority:
+          type: [integer, "null"]
+          description: 声明值；为 null 表示没声明（实际顺序见数组下标）
+        description:
+          type: [string, "null"]
+        events:
+          type: array
+          items:
+            type: string
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/PluginRule"
+
+    PluginRule:
+      type: object
+      required: [reg, fnc, permission, log]
+      properties:
+        reg:
+          type: string
+          description: 正则的 `source`（不带斜杠与标志）
+        fnc:
+          type: [string, "null"]
+          description: 处理方法名
+        permission:
+          type: [string, "null"]
+        log:
+          type: [boolean, "null"]
+          description: 值为 false 表示该规则的日志降级为 debug；null 表示没声明
+
+    ConfigList:
+      type: object
+      required: [dirs, summary, files]
+      properties:
+        dirs:
+          type: object
+          required: [config, defaults]
+          properties:
+            config:
+              type: string
+            defaults:
+              type: string
+        summary:
+          $ref: "#/components/schemas/ConfigDiffSummary"
+        files:
+          type: array
+          items:
+            type: object
+            required: [name, status, differences]
+            properties:
+              name:
+                type: string
+              status:
+                type: string
+                enum: [both, only-user, only-default]
+              differences:
+                $ref: "#/components/schemas/ConfigDiffSummary"
+
+    ConfigDiffSummary:
+      type: object
+      required: [files, missing, extra, changed]
+      properties:
+        files:
+          type: integer
+          description: 只有清单顶层才有；`differences` 里恒为 0
+        missing:
+          type: integer
+          description: 默认有、用户没有的键数
+        extra:
+          type: integer
+          description: 用户有、默认没有的键数
+        changed:
+          type: integer
+          description: 两边都有但值不同的键数
+
+    ConfigFile:
+      type: object
+      required: [name, status, user, defaults, redacted]
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [both, only-user, only-default]
+        user:
+          description: 用户侧解析后的 YAML；文件不存在时为 null
+          oneOf:
+            - type: object
+            - type: array
+            - type: string
+            - type: number
+            - type: boolean
+            - type: "null"
+        defaults:
+          description: 出厂默认侧解析后的 YAML；文件不存在时为 null
+          oneOf:
+            - type: object
+            - type: array
+            - type: string
+            - type: number
+            - type: boolean
+            - type: "null"
+        redacted:
+          type: array
+          description: 被脱敏的路径（`a.b.c`；数组元素写成 `a[0].b`）
+          items:
+            type: string
