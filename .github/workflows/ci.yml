@@ -43,10 +43,9 @@ jobs:
       - name: Format check
         run: pnpm lint
 
-      # 首次引入，告警基线见 docs/refactor/03-engineering.md，清零后再改为阻塞
+      # ESLint 基线已归零（阶段 3 第 8 步），因此改为阻塞项
       - name: ESLint
         run: pnpm lint:eslint
-        continue-on-error: true
 
       # 首次引入，报错基线见 docs/refactor/03-engineering.md，清零后再改为阻塞
       - name: Typecheck

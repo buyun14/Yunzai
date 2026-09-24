@@ -161,18 +161,20 @@ puppeteer / 渲染 / 适配器等需要真实环境才能跑的模块，
 
 ### 3.5 提交与分支
 
-- `husky` + `lint-staged`：提交前只对暂存文件跑 `prettier --write`（**不含 ESLint**，原因见下）；
+- `husky` + `lint-staged`：提交前对暂存文件跑 `eslint` + `prettier --write`；
 - `commitlint` + Conventional Commits：`feat` / `fix` / `refactor` / `docs` / `chore` / `test` / `perf`；
 - 分支：`main` 始终可用，改动走 `feat/*` 短分支。
 
-> **偏差记录：提交钩子里不跑 ESLint。**
-> `eslint --fix` 的退出码包含**基线里已有的**报错，不区分是否本次引入。
+> **偏差记录（已关闭）：阶段 0 起提交钩子里不跑 ESLint。**
+> `eslint` 的退出码包含**基线里已有的**报错，不区分是否本次引入。
 > 阶段 0 记录的 16 个 error 里有几个位于改造必须反复触碰的文件
 > （`lib/plugins/loader.js` 的 `no-setter-return`、`lib/bot.js` 的 Symbol 转换、`app.js` 的 `no-fallthrough`），
 > 实测一旦把 eslint 放进钩子，这些文件就 **任何改动都无法提交**（阶段 1 第一次提交即被拦住）。
 >
-> 退出条件：`baseline/static-analysis.md` 的数字归零后，把 `eslint --fix` 加回 `lint-staged.config.js`，
-> 同时去掉 CI 中 `lint:eslint` 的 `continue-on-error`。
+> **关闭时间：阶段 3 第 8 步。** `baseline/static-analysis.md` 的 ESLint 数字已归零
+> （16 error / 9 warning → 0 / 0），前提条件随之消失，于是：
+> `lint-staged.config.js` 加回 eslint、`ci.yml` 去掉 `lint:eslint` 的 `continue-on-error`。
+> `typecheck` 的 `continue-on-error` 仍未去掉（还剩 270 处），归 §4 第 8 步的后续。
 
 ### 3.6 CI
 
@@ -232,7 +234,7 @@ puppeteer / 渲染 / 适配器等需要真实环境才能跑的模块，
 | 6 | 新增 `ci.yml`（先只跑 lint + test，typecheck 设 `continue-on-error`） | ✅ | ✅ 阶段 0 |
 | 6a | **覆盖率**：登记基线 → 设门槛 → 接进 CI | ✅ | ✅ 阶段 3（见 §3.4.1） |
 | 7 | 新增 `smoke.yml` | ✅ | ✅ 阶段 3（redis service + `scripts/smoke.mjs`） |
-| 8 | 收紧：按目录消除 ESLint 告警与 TS 报错，逐目录把 `continue-on-error` 去掉 | 逐步 | 🚧 未开始 |
+| 8 | 收紧：按目录消除 ESLint 告警与 TS 报错，逐目录把 `continue-on-error` 去掉 | 逐步 | 🚧 **ESLint 已归零**（16/9 → 0/0，已转为阻塞）；typecheck 剩 270 处 |
 
 ---
 
@@ -240,7 +242,8 @@ puppeteer / 渲染 / 适配器等需要真实环境才能跑的模块，
 
 - [x] `pnpm lint` 为只读校验，在 Windows 与 Linux 上结果一致
 - [x] `.prettierignore` 生效：修改 `lib/modules/` 下任何文件都不会被格式化
-- [x] `pnpm lint:eslint` 可运行，剩 16 error / 9 warning，**已登记基线**（见 `baseline/static-analysis.md`）
+- [x] `pnpm lint:eslint` **零问题**并作为阻塞项：阶段 3 第 8 步从 16 error / 9 warning 清到 0/0，
+      提交钩子与 CI 均已转为阻塞；逐条处理方式见 `baseline/static-analysis.md` §0.1
 - [x] `pnpm typecheck` 可运行，报错数量已登记基线（阶段 2 末为 270 处）
 - [x] `pnpm test` 至少覆盖：`lib/plugins/schema.js` 校验器、调度器递回逻辑、`RateLimit` 拆分的两个 Stage
 - [x] **覆盖率**：核心模块 95.22% / 89.66% / 94.23% / 96.91%，门槛已入 `vitest.config.js` 并在 CI 里阻塞（`03-engineering.md` §3.4.1）

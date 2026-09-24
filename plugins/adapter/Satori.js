@@ -156,23 +156,27 @@ Bot.adapter.push(
             }
             break
           case "image":
-          case "img":
+          case "img": {
             const imgSrc = await this.makeFile(item.data.file || item.data.url)
             elements.push(`<img src="${imgSrc}"/>`)
             break
+          }
           case "audio":
-          case "record":
+          case "record": {
             const audioSrc = await this.makeFile(item.data.file || item.data.url)
             elements.push(`<audio src="${audioSrc}"/>`)
             break
-          case "video":
+          }
+          case "video": {
             const videoSrc = await this.makeFile(item.data.file || item.data.url)
             elements.push(`<video src="${videoSrc}"/>`)
             break
-          case "file":
+          }
+          case "file": {
             const fileSrc = await this.makeFile(item.data.file || item.data.url)
             elements.push(`<file src="${fileSrc}" title="${item.data.name || ""}"/>`)
             break
+          }
           case "reply":
             elements.push(`<quote id="${item.data.id}"/>`)
             break
@@ -192,10 +196,11 @@ Bot.adapter.push(
               elements.push(`<button id="${btnId}">${btnText}</button>`)
             }
             break
-          case "node":
+          case "node": {
             const nodeElements = await this.makeSatoriElements(item.data)
             elements.push(`<message forward>${nodeElements.join("")}</message>`)
             break
+          }
           case "raw":
             elements.push(item.data)
             break
@@ -439,7 +444,7 @@ Bot.adapter.push(
             true,
           )
           break
-        case "group":
+        case "group": {
           const group_name = data.group_name || data.bot.gl.get(data.group_id)?.group_name
           const user_name = data.sender.card || data.sender.nickname
           Bot.makeLog(
@@ -449,6 +454,7 @@ Bot.adapter.push(
             true,
           )
           break
+        }
         default:
           Bot.makeLog("warn", `未知消息类型：${data.message_type}`, data.self_id)
       }

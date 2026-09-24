@@ -3,14 +3,17 @@
 记录引入质量闸门时各项检查的真实结果，作为后续收紧的起点。
 **以下数字只允许下降**；任何新增报错都应视为回归。
 
+> §2 与 §3 保留的是**采集当时**的分析原文（含逐条根因与修法建议），
+> 不随后续进展改写；处理结果统一记在下面的 §0.1。
+
 ## 0. 摘要
 
-| 闸门 | 命令 | 阶段 0 结果 | CI 中的状态 |
-|---|---|---|---|
-| 格式化 + 语法 | `pnpm lint` | ✅ 通过 | **阻塞** |
-| ESLint | `pnpm lint:eslint` | ❌ 25 问题（16 error / 9 warning） | `continue-on-error` |
-| 类型检查 | `pnpm typecheck` | ❌ 278 处（自有代码，第三方 147 处已排除） | `continue-on-error` |
-| 单元测试 | `pnpm test` | ✅ 5 通过（L0 冻结面守卫） | **阻塞** |
+| 闸门 | 命令 | 阶段 0 结果 | 阶段 3 第 8 步后 | CI 中的状态 |
+|---|---|---|---|---|
+| 格式化 + 语法 | `pnpm lint` | ✅ 通过 | ✅ 通过 | **阻塞** |
+| ESLint | `pnpm lint:eslint` | ❌ 25 问题（16 error / 9 warning） | ✅ **0 问题** | **阻塞**（原 `continue-on-error`） |
+| 类型检查 | `pnpm typecheck` | ❌ 278 处（自有代码，第三方 147 处已排除） | ❌ 270 处 | `continue-on-error` |
+| 单元测试 | `pnpm test` | ✅ 5 通过（L0 冻结面守卫） | ✅ 352 通过 | **阻塞** |
 
 复现：
 
@@ -21,6 +24,40 @@ pnpm typecheck          # 会打印按文件统计
 node scripts/typecheck.mjs --json   # 机器可读
 pnpm test
 ```
+
+## 0.1 阶段 3 第 8 步的处理结果
+
+ESLint 基线已清零，处理方式**逐条不同**——凡是有行为风险的都不"顺手改掉"：
+
+| 项 | 处理 | 说明 |
+|---|---|---|
+| §2.3 死代码（11 条） | ✅ 清理 | 唯一需要小心的是 `lib/config/init.js:48`：去掉绑定但**保留调用**，它的副作用才是重点 |
+| P3 · `no-setter-return` | ✅ 改为块体 setter | 与阶段 2 在 `pipeline/stages/process.js` 的同类修复保持一致 |
+| P2 · `no-case-declarations` | ✅ 加块作用域 | 各分支同时消除了同名 `const` 的 TDZ 隐患 |
+| P1 · `no-fallthrough` | ✅ 补 `break` | 两处的 `break` 都不可达（前一行是 `process.exit()`）；写上是为了标明意图，并让将来把 exit 改成可返回实现时仍然正确 |
+| D2 · `no-self-assign` | ✅ 删除自赋值 | **没有**顺手加 `??= ""` 兜底——那需要先确认 Milky 协议，属于"不要凭猜"的范围 |
+| D1 · `no-unsafe-finally` | ✅ 改写 + 补单测 | 见下 |
+| D3 · Symbol 隐式转字符串 | ⬜ 未处理 | 属类型检查项，随 §4 第 4 步一起做 |
+
+### D1 的两处修正
+
+**改写**（`lib/util.js` 的 `debounce`）：把 `finally { return ... }` 改成
+`catch {}` 之后再 `return`。`catch` 里写明这是**保留原行为**而不是修 bug：
+
+> 需要澄清的是，原文对 D1 的影响面判断**偏重了**。实测（`tests/unit/util/debounce.test.js`）
+> 表明异常并非"静默消失"：首次调用方直接 `await promise.promise`，
+> rejection 照常抛给他；只有**排队的那一次**会被 `finally` 里的 return 换成重试。
+> 是否要改成向排队方也传递异常属于语义变更，需单独评估。
+
+**为什么必须补单测**：改写是在动一个所有插件共用的并发工具，没有测试的"行为等价"
+只是一句声明。实测过程中还顺带固定了两条容易被误读的既有行为：
+
+- 裸调用时**首个调用的实际延时是 0**，不是第二个参数的默认值 5000
+  （`this?.[debounceTime] ?? 0` 里的 `this` 是 `ret` 被调用时的 this，
+  真实用法 `configSave()` 是裸调用）。仅排队重试那次才带上闭包的 5000。
+- 首个调用方的 rejection 可观测（见上）。
+
+这两条都**只记录、不修正**，因为改时序同样属于语义变更。
 
 ---
 
@@ -148,12 +185,20 @@ util.makeLog("trace", `不存在 Bot.${prop}`)
 
 按"投入产出"排序，每步都要把对应数字降下来并在同一 PR 更新本文件：
 
-1. 清理 §2.3 的死代码（无行为影响，可一次性完成）。
-2. 修复 D1 / D2 / D3，各自配单测（D1 必须覆盖 reject 场景）。
-3. 引入 `typescript-eslint` 并开启类型感知规则（`no-floating-promises`），这需要先降低类型噪声。
-4. 收敛 §3.2 的四类类型噪声，按目录推进：`lib/pipeline/` → `lib/plugins/` → `lib/message/` → `lib/config/` → `lib/bot.js`。
-5. 数字归零后，把 CI 中 `lint:eslint` 与 `typecheck` 的 `continue-on-error` 去掉。
-6. 处理 §2.2 的 P1/P2/P3（可选择加块作用域、补 `break`），并同步更新 `99-compat-and-migration.md` 中的隐式契约说明。
+1. ✅ 清理 §2.3 的死代码（无行为影响，可一次性完成）。
+2. ⏳ 修复 D1 / D2 / D3，各自配单测（D1 必须覆盖 reject 场景）。
+   D1 已改写并配了 `tests/unit/util/debounce.test.js`（4 个用例，覆盖 reject 与排队重试）；
+   D2 已删除自赋值；**D3 未做**（它属类型检查项，随第 4 步一起）。
+3. ⬜ 引入 `typescript-eslint` 并开启类型感知规则（`no-floating-promises`），这需要先降低类型噪声。
+4. ⬜ 收敛 §3.2 的四类类型噪声，按目录推进：`lib/pipeline/` → `lib/plugins/` → `lib/message/` → `lib/config/` → `lib/bot.js`。
+5. ⏳ 数字归零后，把 CI 中 `lint:eslint` 与 `typecheck` 的 `continue-on-error` 去掉。
+   **`lint:eslint` 已完成**（ESLint 归零，`ci.yml` 已改为阻塞，`lint-staged.config.js`
+   也把 eslint 加进了提交钩子）；`typecheck` 依赖第 4 步。
+6. ✅ 处理 §2.2 的 P1/P2/P3（加块作用域、补 `break`、setter 改块体）。
+   关于"同步更新 `99-compat-and-migration.md` 中的隐式契约说明"：**无需更新**——
+   P1 原本依赖"`process.exit` 覆盖后仍不得返回"这条跨文件隐式契约，
+   补上 `break` 之后该契约不再是正确性的必要条件（将来即便 exit 变成可返回的实现，
+   控制流也不会穿透），因此没有需要写进契约文档的约束。
 
 ---
 

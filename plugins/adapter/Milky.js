@@ -755,7 +755,9 @@ Bot.adapter.push(
         data.request_type = "friend"
         data.sub_type = "add"
         data.user_id = String(data.initiator_id)
-        data.comment = data.comment
+        // 原文这里是一行自赋值（data.comment = data.comment），无任何效果，故删除。
+        // 注意：本次**没有**替它加兜底值——若将来确认 Milky 的载荷里可能缺 comment，
+        // 应该补的是明确的兜底（如 ??= ""），而不是恢复一行自赋值。
         data.flag = data.initiator_uid
         Bot.makeLog(
           "info",
@@ -788,7 +790,7 @@ Bot.adapter.push(
         data.sub_type = data.event_type === "group_join_request" ? "add" : "invite"
         data.group_id = String(data.group_id)
         data.user_id = String(data.initiator_id)
-        data.comment = data.comment
+        // 同上：原文的自赋值已删除，本次未加兜底值
         data.flag = String(data.notification_seq)
         Bot.makeLog(
           "info",

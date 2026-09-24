@@ -5,6 +5,9 @@ switch (process.env.app_type || process.argv[2]) {
       headers: cfg.server.auth || undefined,
     }).catch(() => {})
     process.exit()
+    // process.exit() 不返回，这个 break 不会执行；写上是为了标明分支意图，
+    // 也让 no-fallthrough 不必依赖“注释例外”才能通过。
+    break
   }
   case "daemon": {
     console.log("守护进程正在启动主进程")
@@ -17,6 +20,8 @@ switch (process.env.app_type || process.argv[2]) {
       console.log("守护进程正在重启主进程")
     console.log("守护进程已停止")
     process.exit()
+    // 同上：process.exit() 不返回
+    break
   }
   case "pm2":
     global.start_type = "pm2"
