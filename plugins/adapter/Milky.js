@@ -359,6 +359,26 @@ Bot.adapter.push(
       }
     }
 
+    /**
+     * 调用 Milky API。
+     *
+     * 返回类型显式写成 `Record<string, any>` 而不是让它自己推断：
+     * 响应封套**确定是个对象**，但字段随 action 变化，而且下面还会往上补
+     * retcode / status / error 等派生字段，给不出固定形状；写成 `any`
+     * 则连"是不是对象"都放弃检查了。
+     *
+     * 为什么必须显式声明：函数体里有 `if (!data || typeof data !== "object")` 这道
+     * 守卫，它会把 `data` 从**隐式 any 收窄成 `object`**，于是后面每一处
+     * `data.xxx` 都变成 TS2339，并且经由返回值把 `loginInfo.data` 之类的访问也带坏
+     * ——本文件 19 处报错全部出自这一条链。声明返回类型即可终结整串。
+     *
+     * @param {string} apiBaseUrl API 根地址
+     * @param {string | undefined} token 访问令牌（未配置时为 undefined，故不用 `[token]`
+     *   的可选写法——可选参数后面不能再跟必选参数）
+     * @param {string} action API 名称
+     * @param {Record<string, any>} [params] 请求参数
+     * @returns {Promise<Record<string, any>>}
+     */
     async callApi(apiBaseUrl, token, action, params = {}) {
       const url = `${apiBaseUrl}/${action}`
       const headers = { "Content-Type": "application/json" }
@@ -375,6 +395,7 @@ Bot.adapter.push(
           signal: controller.signal,
         })
 
+        /** @type {Record<string, any> | null} */
         let data = null
         try {
           data = await res.json()

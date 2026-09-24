@@ -34,3 +34,10 @@ switch (process.env.app_type || process.argv[2]) {
 }
 global.Bot = new (await import("./lib/bot.js")).default()
 Bot.run()
+
+// 仅为一件事而存在：本文件用了顶层 await，但自身没有任何 import / export，
+// 于是 TypeScript 把它当作**脚本**而不是模块，报 4 处 TS1375
+// （"'await' expressions are only allowed at the top level of a file when
+// that file is a module"）。加一个空导出即可声明"这是模块"。
+// 运行期无任何影响：package.json 声明了 "type": "module"，它本来就是 ES 模块。
+export {}
