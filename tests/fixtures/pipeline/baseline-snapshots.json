@@ -1,0 +1,911 @@
+{
+  "没有插件时记「暂无插件处理」": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "rule 命中并执行处理器": {
+    "invoked": ["复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "rule 不命中": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "处理器依赖 this.e": {
+    "invoked": ["用this.onMsg", "用this.onMsg:10001:用this"],
+    "sent": [
+      {
+        "msg": "来自插件",
+        "quote": false,
+        "data": {}
+      }
+    ],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      },
+      {
+        "type": "send",
+        "msg": "来自插件"
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[用this(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "处理器返回 false 时继续同一插件的下一条规则": {
+    "invoked": ["多规则.first", "多规则.second"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[多规则(second)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "处理器返回 false 且无后续规则": {
+    "invoked": ["单规则.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[单规则(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "前一个插件不匹配时继续下一个": {
+    "invoked": ["复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "没有 event 声明的插件被排除": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "event 声明不匹配的插件被排除": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "disable 命中的插件被排除": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "enable 白名单不含该插件时被排除": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "accept 返回 return 时不进入 rule": {
+    "invoked": ["靠accept.accept"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "accept 返回真值后进入 rule": {
+    "invoked": ["靠accept.accept", "复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "context hook 返回 continue 时放行": {
+    "invoked": ["钩子.getContext", "钩子.getContext", "复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "context hook 返回其他值时终止": {
+    "invoked": ["钩子.getContext", "钩子.getContext", "复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "getContext 返回空对象时跳过该插件": {
+    "invoked": ["空上下文.getContext", "空上下文.getContext", "复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "getContext 依赖 this.e（conKey 同形）": {
+    "invoked": ["用conKey.getContext", "用conKey.getContext", "复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "onlyReplyAt=1 且未 at 未带别名时不唤醒": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": false,
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "onlyReplyAt=1 且 at 机器人时唤醒": {
+    "invoked": ["复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "at",
+            "qq": 12345
+          },
+          {
+            "type": "text",
+            "text": " #复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "atBot": true,
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "onlyReplyAt=1 且带别名时唤醒并剥离别名": {
+    "invoked": ["复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "机器人#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "hasAlias": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][机器人#复读]"
+  },
+  "onlyReplyAt=1 但 getContext 仍然执行": {
+    "invoked": ["钩子.getContext", "钩子.getContext"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": false,
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "非主人触发 master 规则时发送提示": {
+    "invoked": [],
+    "sent": [
+      {
+        "msg": "暂无权限，只有主人才能操作",
+        "quote": false,
+        "data": {}
+      }
+    ],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      },
+      {
+        "type": "send",
+        "msg": "暂无权限，只有主人才能操作"
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[仅主人(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "群管理规则对成员拦截": {
+    "invoked": [],
+    "sent": [
+      {
+        "msg": "暂无权限，只有管理员才能操作",
+        "quote": false,
+        "data": {}
+      }
+    ],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      },
+      {
+        "type": "send",
+        "msg": "暂无权限，只有管理员才能操作"
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[仅管理(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "群管理规则对管理员放行": {
+    "invoked": ["仅管理.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[仅管理(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "群主规则对管理员拦截": {
+    "invoked": [],
+    "sent": [
+      {
+        "msg": "暂无权限，只有群主才能操作",
+        "quote": false,
+        "data": {}
+      }
+    ],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      },
+      {
+        "type": "send",
+        "msg": "暂无权限，只有群主才能操作"
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[仅群主(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "黑名单用户被拦截": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ]
+  },
+  "白名单用户不含该用户时被拦截": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ]
+  },
+  "白名单用户含该用户时放行": {
+    "invoked": ["复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "黑名单群被拦截": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ]
+  },
+  "白名单群不含该群时被拦截": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ]
+  },
+  "群被禁言时拦截": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ]
+  },
+  "全员禁言且发言者非管理非群主时拦截": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ]
+  },
+  "全员禁言但发言者是群管理时放行": {
+    "invoked": ["复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "群冷却生效时拦截": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ]
+  },
+  "单人冷却生效时拦截": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ]
+  },
+  "同文去重生效时拦截": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ]
+  },
+  "私聊消息不受群限流影响": {
+    "invoked": ["复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isPrivate": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试用户(10001)][#复读]"
+  },
+  "星铁前缀被归一化": {
+    "invoked": ["星铁.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#*抽卡"
+          }
+        ]
+      }
+    ],
+    "msg": "#星铁抽卡",
+    "game": "sr",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[星铁(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#*抽卡]"
+  },
+  "绝区零前缀被归一化": {
+    "invoked": ["绝区零.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#%抽卡"
+          }
+        ]
+      }
+    ],
+    "msg": "#绝区零抽卡",
+    "game": "zzz",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[绝区零(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#%抽卡]"
+  },
+  "斜杠前缀被转成井号": {
+    "invoked": ["复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "/复读"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "多段混合消息的 msg / at / img": {
+    "invoked": ["复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读 "
+          },
+          {
+            "type": "at",
+            "qq": 10002
+          },
+          {
+            "type": "image",
+            "url": "https://example.invalid/a.png"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "at": 10002,
+    "img": ["https://example.invalid/a.png"],
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "引用消息的 reply_id 与 file": {
+    "invoked": ["复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "reply",
+            "id": 999
+          },
+          {
+            "type": "text",
+            "text": "#复读"
+          },
+          {
+            "type": "file",
+            "name": "report.txt",
+            "url": "https://example.invalid/report.txt",
+            "size": 123
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "file": {
+      "type": "file",
+      "name": "report.txt",
+      "url": "https://example.invalid/report.txt",
+      "size": 123
+    },
+    "reply_id": 999,
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "未识别段类型不影响旧字段与决策": {
+    "invoked": ["复读机.onMsg"],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive",
+        "msg": [
+          {
+            "type": "text",
+            "text": "#复读 "
+          },
+          {
+            "type": "record",
+            "file": "https://example.invalid/voice.silk"
+          },
+          {
+            "type": "video",
+            "file": "https://example.invalid/clip.mp4"
+          },
+          {
+            "type": "forward",
+            "id": "forward-1"
+          },
+          {
+            "type": "poke",
+            "id": "-1"
+          }
+        ]
+      }
+    ],
+    "msg": "#复读",
+    "isGroup": true,
+    "only_reply_at": true,
+    "logFnc": "[复读机(onMsg)]",
+    "logText": "[测试群(67890), 测试用户(10001)][#复读]"
+  },
+  "notice 事件同样走流水线": {
+    "invoked": [],
+    "sent": [],
+    "counts": [
+      {
+        "type": "receive"
+      }
+    ],
+    "isGroup": true,
+    "only_reply_at": true,
+    "logText": "[测试群(67890), 新人(10002)][[object Object]]"
+  }
+}

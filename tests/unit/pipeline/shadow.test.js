@@ -1,3 +1,6 @@
+import fs from "node:fs/promises"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it, vi } from "vitest"
 import cfg from "../../../lib/config/config.js"
 import { PipelineContext } from "../../../lib/pipeline/context.js"
@@ -288,5 +291,67 @@ describe("影子运行：对比本身是有效的（防止假阳性）", () => {
     expect(await executedLabels(find("disable 命中的插件被排除"))).toEqual([])
     expect(await executedLabels(find("没有 event 声明的插件被排除"))).toEqual([])
     expect(await executedLabels(find("rule 命中并执行处理器"))).toContain("复读机.onMsg")
+  })
+})
+
+/**
+ * 基线快照：为阶段 2 第 5 步（删掉旧路径）留下“正确行为”的书面依据。
+ *
+ * 影子对比能证明两侧一致，但一旦删掉 `deal()`，那份证明就随代码一起消失了——
+ * 于是“以后没人能确认现在是对的”。所以趁旧实现还在、对比全绿的时候，
+ * 把**旧侧**的结果冻结成 fixture：那是经两侧互证过的行为，
+ * 而不是“新侧当时碰巧的输出”。
+ *
+ * 平时这个块只跑一遍（不写文件）；要重新录制得显式设 `RECORD_SHADOW=1`，
+ * 以免一次无意间的运行就把基线改掉。
+ */
+/**
+ * 基线对照：新流水线必须与冻结下来的基线逐项一致。
+ *
+ * 与上面的影子对比的区别：影子对比要求**旧实现与它一致**，一旦删掉 `deal()`，
+ * 它就没了；而基线是**写下来的期望**，旧代码不在了也照样能跑。
+ * 两者现在同时存在，正好互相印证：两个都绿，说明基线录对了。
+ *
+ * 两侧都过一遍 JSON 再比：基线里存的是 JSON，`undefined` 会被丢掉，
+ * 不过这一道会让“值为 undefined 的字段”在两边表现不一而假装相等。
+ */
+describe("基线对照：与冻结的基线一致", () => {
+  const BASELINE_FILE = fileURLToPath(
+    new URL("../../fixtures/pipeline/baseline-snapshots.json", import.meta.url),
+  )
+
+  /** JSON 化：把 `undefined` 统一成 `null`，让两边可比 */
+  const plain = value => JSON.parse(JSON.stringify(value ?? null))
+
+  it("基线里覆盖了全部场景（新增场景时得重录）", async () => {
+    const baseline = JSON.parse(await fs.readFile(BASELINE_FILE, "utf8"))
+    const missing = SCENARIOS.filter(scenario => !(scenario.name in baseline)).map(s => s.name)
+
+    expect(
+      missing,
+      `这些场景不在基线里，请用 RECORD_SHADOW=1 重录：\n${missing.join("\n")}`,
+    ).toEqual([])
+  })
+
+  for (const scenario of SCENARIOS)
+    it(scenario.name, async () => {
+      const baseline = JSON.parse(await fs.readFile(BASELINE_FILE, "utf8"))
+      expect(plain(await runPipeline(scenario))).toEqual(plain(baseline[scenario.name]))
+    })
+})
+
+describe("基线快照（给阶段 2 第 5 步用）", () => {
+  it("RECORD_SHADOW=1 时把两侧一致的结果写成基线快照", async () => {
+    const snapshots = {}
+    for (const scenario of SCENARIOS) snapshots[scenario.name] = await runLegacy(scenario)
+
+    if (!process.env.RECORD_SHADOW) return
+
+    const file = fileURLToPath(
+      new URL("../../fixtures/pipeline/baseline-snapshots.json", import.meta.url),
+    )
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    await fs.writeFile(file, `${JSON.stringify(snapshots, null, 2)}\n`)
+    console.log(`[记录] ${Object.keys(snapshots).length} 个场景 → ${file}`)
   })
 })
