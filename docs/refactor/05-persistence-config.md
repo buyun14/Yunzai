@@ -108,8 +108,17 @@ initCfg()                    # 补齐缺失的配置文件（现有行为）
 > 真实启动实测：`配置已从 v0 迁移到 v1，共 1 个脚本`，备份落在 `config/backups/<ts>/`，
 > 插件照常加载 27 个、`[ERRO]` 0 条。
 >
-> **尚未完成**：第二条真实迁移（`masterQQ` 数组化，需配 `tests/fixtures/config/<version>/` 快照）、
-> `node . config:diff`（§3.2）、`backup` / `restore` CLI（§3.4）、redis 键前缀规范（§3.3）。
+> **后续完成情况（2026-09-24 当天全部落地）**：
+>
+> - 第二条真实迁移 `002-master-qq-array.js`（`masterQQ` 数组化），配
+>   `tests/fixtures/config/{v1,v2}/` 快照；`CURRENT_CONFIG_VERSION` 升到 2，
+>   真实配置已实际迁移到位（`config/config/_meta.json` 的 `config_version: 2`）；
+> - `node . config:diff`（§3.2）；
+> - `backup` / `restore` CLI（§3.4）；
+> - redis 键前缀规范（§3.3）。
+>
+> **仍未完成的一项**：`sequelize` / `sqlite3` 的删除——决策是「先告警、两个版本后再删」
+> （BCR-0001），当前处于告警期，属于**刻意等待**，不是遗漏。
 
 ### 3.2 配置 schema 化
 
@@ -159,7 +168,7 @@ initCfg()                    # 补齐缺失的配置文件（现有行为）
       声明了这两个依赖的未知第三方插件会直接崩。已落地的告警手段：
       `lib/config/init.js` 的 `warnDeprecatedDeps()`（启动时打一次，只打一次——
       放在模块顶层会在单测里被刷屏）、`config/default_config/db.yaml` 的废弃头、
-      `package.json` 的 `"//"` 注记。两个版本后按 BCR-0001 移除。；
+      `package.json` 的 `"//"` 注记。两个版本后按 BCR-0001 移除。
 - [x] 为 redis 键建立前缀规范并写进 `AGENTS.md`，改造 `lib/plugins/loader.js`、`lib/events/connect.js`、`plugins/system/status.js` 中的现有键。
       —— 已落地，实际改的不只这三个文件，见下方落地说明。
 
@@ -284,11 +293,11 @@ CLI（挂在现有 `app.js` 的 `switch (process.argv[2])` 分支上，与 `stop
 
 ## 6. 验收标准
 
-- [ ] `config/_meta.json` 在首次启动时生成，记录当前版本
-- [ ] 至少 2 个真实迁移脚本落地（建议：`masterQQ` 数组化、某个已改名键的兼容），每个都有 `tests/fixtures/config/<version>/` 的历史快照测试
-- [ ] 迁移是幂等的：连续执行两次结果一致，且第二次不产生文件变更
-- [ ] 迁移前自动备份，备份目录可列出、可恢复
-- [ ] 迁移失败时启动中止，错误信息包含"如何从备份恢复"的具体命令
+- [x] `config/_meta.json` 在首次启动时生成，记录当前版本
+- [x] 至少 2 个真实迁移脚本落地（建议：`masterQQ` 数组化、某个已改名键的兼容），每个都有 `tests/fixtures/config/<version>/` 的历史快照测试
+- [x] 迁移是幂等的：连续执行两次结果一致，且第二次不产生文件变更
+- [x] 迁移前自动备份，备份目录可列出、可恢复
+- [x] 迁移失败时启动中止，错误信息包含"如何从备份恢复"的具体命令
 - [x] `node . backup` 生成的包能在干净目录中 `node . restore` 成功还原配置
       —— 已落地；单测里的 `restoreArchive({ root: <临时目录> })` 就是在假项目里还原，
       并用外部工具（`Expand-Archive` / `tar -xf`）验过包本身的兼容性（见 §3.4）
@@ -297,6 +306,27 @@ CLI（挂在现有 `app.js` 的 `switch (process.argv[2])` 分支上，与 `stop
       `strict_plugin_version` 待补 1 项，其余无差异（符合预期：阶段 1 加的这个键
       只在默认文件里）。实测中修掉一个"命令没退出、顺手启动了整个 bot"的 bug，见 §3.2。
 - [ ] `sequelize` 去留决策执行完毕（删除或明确标注），`pnpm i` 后依赖树中不再有未使用的重型包
+
+> **落地情况（2026-09-24）：除最后一条外，本节验收项全部达成。**
+>
+> | 验收项 | 证据 |
+> |---|---|
+> | `_meta.json` 首次启动生成 | 真实环境已是 `{ "migrated_from": 1, "config_version": 2 }` |
+> | ≥2 个真实迁移脚本 | `001-baseline.js` + `002-master-qq-array.js`，配 `tests/fixtures/config/{v1,v2}/` 快照 |
+> | 迁移幂等 | `migrate.test.js`：同一条迁移跑两遍结果一致且第二次不改文件；已是最新时**不备份、不写文件** |
+> | 迁移前自动备份、可列出、可恢复 | `backup.js`：快照目录 + 列表（最新在前）+ 恢复；同一秒连续备份自动加后缀 |
+> | 失败即中止且提示恢复命令 | 用例断言报错含备份路径与可照抄的恢复命令，且**版本号不写、配置不改** |
+>
+> **唯一的未完成项**是 `sequelize` / `sqlite3` 的删除：按 BCR-0001 先告警、
+> 发布两个版本后再移除。这是**刻意等待**，不是遗漏——告警手段见 §3.3。
+>
+> 另有一项**不在本节验收清单里、但也没做完**：§3.2 的「宿主配置 schema 化」
+> （`config/host.schema.js`）。它唯一的下游消费者是阶段 6 的 WebUI 表单，
+> 因此与阶段 6 一起做更合理。
+>
+> `node . config:diff` 在真实配置上的当前输出（2026-09-24 实测）：只有 `bot.yaml` 的
+> `strict_plugin_version` 待补 1 项（符合预期，阶段 1 新增的键只在默认文件里），
+> **多余 0 项、不同 0 项** —— 说明用户配置里没有 `legacy_pipeline` 之类的残留键。
 
 ---
 

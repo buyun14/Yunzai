@@ -178,8 +178,15 @@ flowchart TD
       修完后四条腿全绿，见 `03-engineering.md` §3.6/§5）
 - [x] 阶段 4：消息与适配器（v1 统一组件模型、v2 `umo` 会话键、v3 适配器注册表与能力表，见 `04-message-adapter.md`；
       已在真机上浸泡过群聊与私聊路径，`[ERRO]` 0 条）
-- [ ] 阶段 5：持久化与配置（**进行中**——§3.1 的配置版本化 / 幂等迁移 / 迁移前备份、
-      §3.2 的 `config:diff`、§3.4 的 `backup` / `restore` 均已落地，Q1 的死依赖已定为
-      「先告警、两版后删」；只剩 §3.3 的 redis 键前缀规范与 `umo` 的剩余落点）
-- [ ] 阶段 6：WebUI
+- [x] 阶段 5：持久化与配置（**主体已完成**（2026-09-24）：§3.1 配置版本化 / 幂等迁移 / 迁前备份
+      （2 个真实迁移，真实配置已在 `config_version: 2`）、§3.2 的 `config:diff`、
+      §3.3 的 redis 键前缀规范（`Yz:cache:` / `Yz:persist:` + 守卫测试）、
+      §3.4 的 `backup` / `restore`（自写 ZIP，外部工具验过）均已落地。
+      **未完成两项**：① `sequelize` / `sqlite3` 的删除——按 BCR-0001 等两个发布版本，刻意挂起；
+      ② §3.2 的宿主配置 schema 化（`config/host.schema.js`）——下游只有阶段 6 的 WebUI 表单，
+      与阶段 6 一起做。见 `05-persistence-config.md` §6）
+- [ ] 阶段 6：WebUI（**下一站**；开工先看 `06-webui.md` §3.3——安全项必须与功能同期上线，
+      而 `config/default_config/server.yaml` 的 `auth` 默认是**空**的，此时 `serverAuth` 完全放行，
+      所以「启用 WebUI 就强制要求 `auth` 非空」是第一条硬约束。阶段 5 遗留的
+      「宿主配置 schema 化」可与本阶段合并做）
 - [ ] 阶段 7：AI 能力（按需）
