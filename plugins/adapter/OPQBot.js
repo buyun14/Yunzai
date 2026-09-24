@@ -361,7 +361,9 @@ Bot.adapter.push(
       Bot.em(`connect.${id}`, { self_id: id })
     }
 
-    message(data, ws) {
+    // rest 参数：load() 会把 WS 处理器的额外参数转发进来，当前实现不使用它。
+    // 显式声明是为了让那份转发在类型上成立（展开进普通签名必须是元组或 rest）。
+    message(data, ws, ...args) {
       try {
         data = {
           ...JSON.parse(data),
