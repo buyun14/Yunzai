@@ -1,0 +1,16 @@
+# 前端依赖与构建产物都不进仓库
+#
+# 与 AstrBot 不同：那边要把 dist 打进 Python 分发包，Node 侧由 CI 产出即可
+# （见 docs/refactor/06-webui.md §3.4 / §7.2）。
+node_modules/
+dist/
+
+# 这个包是 pnpm workspace 成员，锁文件按根目录的同一条策略不跟踪
+# （见根 .gitignore 的说明与 PLAN.md 的 ADR-006）。
+# 本机若用 npm 装依赖会生成它，一并忽略，避免它被误提交成"依赖真源"。
+package-lock.json
+pnpm-lock.yaml
+
+# 本地联调时可能留下的东西
+*.local
+.vite/
