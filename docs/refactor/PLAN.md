@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 |---|---|
-| 状态 | 阶段 0-4 ✅、阶段 5 主体完成（剩两项刻意挂起，见 §9）；阶段 6 后端 + 前端 v1 只读面板已落地。**进度以 §9 为准** |
+| 状态 | 阶段 0-5 完成（阶段 5 剩 `sequelize` 删除一项，按 BCR-0001 等发布）；阶段 6 v1+v2 完成（v3 按需）。**进度以 §9 为准** |
 | 开发仓 | `E:\ProjectCollection\2026_9\Work\Yunzai` |
 | 参考仓（只读） | `E:\ProjectCollection\2026_9\Own\Yunzai`（完整上游历史） |
 | 基线 | `trss-yunzai` 3.1.3 @ upstream `69d5b3a` |
@@ -117,7 +117,7 @@ flowchart TD
 | 3 | 工程化 | `03-engineering.md` | vitest 单测、`checkJs`、ESLint、husky + commitlint、覆盖率 | 核心模块覆盖率 ≥ 60% | ✅ 完成（覆盖率 95.22%；ESLint 与 typecheck 均已归零并转阻塞；共 355 个单测；CI 四条矩阵腿全绿） |
 | 4 | 消息与适配器 | `04-message-adapter.md` | `Component` 抽象、适配器注册表与能力表、会话唯一键 `umo` | Milky/Satori 走同一组件路径 | ✅ 完成（v1/v2/v3 均落地；`umo` 已用于限流键，`conKey` 与 Runtime 的会话键留给阶段 5；能力表已声明 2 个适配器） |
 | 5 | 持久化与配置 | `05-persistence-config.md` | 幂等迁移、`config_version`、结构化备份导出 | 老配置/老库可自动升级并可回滚 | ✅ 主体完成（两项刻意挂起，见 §9） |
-| 6 | WebUI | `06-webui.md` | Vue3 运维面板、OpenAPI 契约与客户端生成 | 可在 UI 内改配置并热生效 | 🚧 后端完成 + 前端 v1 只读面板已落地；验收项「可在 UI 内改配置」属 v2 |
+| 6 | WebUI | `06-webui.md` | Vue3 运维面板、OpenAPI 契约与客户端生成 | 可在 UI 内改配置（v2 完成即达成） | ✅ **v1 + v2 已完成**（v3 插件页面按需） |
 | 7 | AI 能力 | `07-ai-capabilities.md` | Provider 注册表、Agent 循环、知识库 RAG | 按需启动，不作为前置依赖 | 未开始 |
 
 阶段 1 与阶段 2 顺序不可交换：契约决定了 Stage 如何取插件信息。阶段 3 可提前部分落地（CI 骨架在阶段 0），但完整测试在阶段 2 之后性价比最高。
@@ -192,18 +192,16 @@ flowchart TD
       **类型数组（联合类型）**支持；22 个新用例，其中一个当场抓出
       `blackGroup` / `blackUser` 的元素类型被误写成 `string`（出厂值是数字，运行期两种都认）。
       见 `05-persistence-config.md` §3.2 / §6）
-- [ ] 阶段 6：WebUI（**后端 + 前端 v1 只读面板均已落地**，详见 `06-webui.md`：
-      安全基座、就绪探针、五个接口（含 SSE 日志流）、`docs/openapi.yaml` 契约与一致性测试；
-      `dashboard/`（Vue 3 + Vite + Vuetify 3 + Pinia）四个页面：状态总览 / 插件列表 /
-      配置查看 / 日志实时流；三处偏离已登记，鉴权放宽登记为 **BCR-0002**。
-      **真机验证 17 项断言全过**（`/dashboard/` 与 assets 免鉴权 200、
-      `/dashboard/whatever` 401、五个接口响应体逐字段核对、SSE 实时）。
-      四个闸门全绿：prettier / eslint 0 问题 / typecheck 0 处 / `vitest run` 37 文件 617 用例。
-      同期按 **BCR-0003** 删掉了 `server.redirect` 与「未命中路径 302 跳到框架作者仓库」的
-      兜底行为（改为 404 JSON），并清掉 `process.title` 的作者/©、启动横幅里的作者仓库地址、
-      两处 `----^_^----` 颜文字标记。
-      **未完成**：v2 配置编辑的**前端表单**（后端三步已齐：schema 表
-      `lib/config/host-schema.js`、schema 只读端点 `GET /api/v1/config/schemas`、
-      写入端点 `PUT /api/v1/config/{name}`（原子写 + 写前备份 + 四道闸门，
-      登记为 BCR-0004））；以及 v3 插件页面，见 `06-webui.md` §7.6）
+- [x] 阶段 6：WebUI（**v1 + v2 均已完成**，详见 `06-webui.md`：
+      安全基座、就绪探针、六个接口（含 SSE 日志流与配置写入）、
+      `docs/openapi.yaml` 契约与一致性测试；
+      `dashboard/`（Vue 3 + Vite + Vuetify 3 + Pinia）四个页面：
+      状态总览 / 插件列表 / 配置查看·编辑 / 日志实时流。
+      **v2 配置编辑端到端可用**：schema 表 `lib/config/host-schema.js`、
+      schema 只读端点、写入端点（原子写 + 写前备份 + 四道闸门，BCR-0004）、
+      由 schema 渲染的前端表单。
+      真机验证：后端 17 项断言 + 前端 puppeteer 驱动 17 项断言全过；
+      四个闸门全绿（prettier / eslint 0 问题 / typecheck 0 处 /
+      `vitest run` 38 文件 658 用例）。
+      **未完成**：v3 插件页面（按需）与敏感接口的紧限流，见 `06-webui.md` §7.6）
 - [ ] 阶段 7：AI 能力（按需）

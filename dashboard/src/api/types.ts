@@ -146,3 +146,60 @@ export interface LogLine {
   /** 已去掉 ANSI 颜色码 */
   message: string
 }
+
+/* ------------------------------------------------------------------ *
+ *  配置编辑（v2）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 受控 JSON Schema 子集的字段描述。
+ *
+ * **只声明我们会读的键**（`additionalProperties` 是开放的）：后端可能带上
+ * 更多展示提示，但表单只关心下面这些。少声明的代价是"某个提示没生效"，
+ * 而不是渲染错误。
+ */
+export interface SchemaField {
+  /** `object` / `array` / `string` / `number` / `integer` / `boolean` / `null`，或它们的数组 */
+  type?: string | string[]
+  title?: string
+  description?: string
+  default?: unknown
+  /** 枚举值。配 `x-widget: select` 时渲染成下拉 */
+  enum?: unknown[]
+  minimum?: number
+  maximum?: number
+  minLength?: number
+  maxLength?: number
+  pattern?: string
+  /** 展示提示：`password` / `textarea` / `select` / `raw` */
+  "x-widget"?: string
+  properties?: Record<string, SchemaField>
+  items?: SchemaField
+  required?: string[]
+}
+
+/** `GET /api/v1/config/schemas` 的响应 */
+export interface ConfigSchemas {
+  /** `文件名 → schema`。只有已建模的文件才会出现在这里 */
+  schemas: Record<string, SchemaField>
+  /** **明确不建模**的文件与原因（前端据此让用户原始编辑，而不是当成"漏了"） */
+  unmodeled: Array<{ name: string; reason: string }>
+}
+
+/** `PUT /api/v1/config/{name}` 的请求体 */
+export interface ConfigWriteRequest {
+  /** 只提交想改的键——后端是逐个 set，没提交的键在文件里原样保留 */
+  config: Record<string, unknown>
+  /** 必须为 true，否则后端返回 428 */
+  confirmed: true
+}
+
+/** `PUT /api/v1/config/{name}` 的响应 */
+export interface ConfigWriteResult {
+  name: string
+  written: true
+  /** 写前备份的路径；原文件不存在时为 null */
+  backup: string | null
+  /** 恒为 true：配置是启动期读进内存的，写盘不影响正在运行的进程 */
+  restartRequired: true
+}

@@ -1,7 +1,10 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from "vue-router"
 
 /**
- * 四个只读页面（`06-webui.md` §7.1）。
+ * 四个页面（`06-webui.md` §7.1）。
+ *
+ * 其中三个是只读的（状态总览 / 插件列表 / 实时日志），**配置页可写**——
+ * 它有查看与编辑两种模式（v2，见 `ConfigView.vue` 与 BCR-0004）。
  *
  * # 为什么是 hash 路由
  *

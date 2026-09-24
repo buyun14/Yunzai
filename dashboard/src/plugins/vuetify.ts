@@ -229,9 +229,19 @@ const aliases: Record<string, string> = {
  * （实测 `Object.keys(import("vuetify"))` 里一个都不含 "icon"），引用它们要么报
  * TS2305、要么得去 import 内部路径——那是拿版本稳定性换的便宜。
  *
- * 图标集的契约很短：`component` 拿到 `icon` prop 自己渲染。走到这里时
- * `aliases` 已经把名字换成了路径字符串（或 `[路径, 不透明度]` 数组），
- * 所以只要画 `<svg viewBox="0 0 24 24">` ——与 Vuetify 内建 SVG 图标集形状一致。
+ * # `props.icon` 拿到的是**名字**，不是路径（踩过一次）
+ *
+ * 曾经以为 `useIcon` 会先用 `aliases` 把名字解析掉、组件收到路径。
+ * 用 puppeteer 打出真实值才发现不是：组件收到的就是 `"mdi-menu"`、`"mdi-key-check"`
+ * 这样的**原始名字**（Vuetify 3.13 的 `useIcon` 只做别名一层，
+ * 按前缀找图标集这一步之后，名字是**原样**交给 component 的）。
+ *
+ * 所以"名字 → 路径"只有两个可行位置：`aliases`（但 `aliases` 的值会被当名字再解析，
+ * 不能放路径），或者**这里**。这里就是它的位置。
+ *
+ * 后果曾经很严重：查不到就返回 null，而 Vuetify 会退回 `VClassIcon` 渲染
+ * `<i class="mdi-menu">`——没有图标字体的话浏览器解析 `<path d="mdi-menu">`
+ * 失败、控制台刷 `Expected number, "mdi-menu"`，**整个面板一个图标都没有**。
  *
  * 类型上退一步：`IconProps` 的 `tag` 是 `string | JSXComponent`，而 `JSXComponent`
  * 来自 Vuetify 的内部路径（同样不在导出面上）。为了不为此引内部类型，
@@ -241,7 +251,16 @@ const MdiSvgIcon: FunctionalComponent<{ icon?: unknown; tag?: string }> = props 
   const value = props.icon
   if (typeof value !== "string" && !Array.isArray(value)) return null
 
-  const paths = (Array.isArray(value) ? value : [value]) as Array<string | [string, number]>
+  // 名字 → 路径。数组（多色图标）原样用，单个字符串按 `mdi-<名字>` 查表；
+  // 查不到就直接返回 null（画不出来好过画出一个浏览器解析不了的 path）
+  let paths: Array<string | [string, number]>
+  if (Array.isArray(value)) {
+    paths = value as Array<string | [string, number]>
+  } else {
+    const path = iconPaths[value.replace(/^mdi-/, "")]
+    if (!path) return null
+    paths = [path]
+  }
 
   return h(props.tag ?? "i", { class: "v-icon__svg" }, [
     h(

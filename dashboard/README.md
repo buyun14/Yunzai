@@ -1,16 +1,27 @@
 # dashboard/ —— Yunzai 运维面板前端
 
-阶段 6 的 WebUI 前端。**v1 是只读面板**，四个页面全部消费已经稳定的五个接口：
+阶段 6 的 WebUI 前端。**v1 只读 + v2 配置编辑都已落地**：
 
 | 页面 | 数据源 | 实现 |
 |---|---|---|
 | 状态总览 | `GET /api/v1/status`（`/ready` 作启动探针） | `src/views/StatusView.vue` |
 | 插件列表 | `GET /api/v1/plugins` | `src/views/PluginsView.vue` |
-| 配置查看 | `GET /api/v1/config` 与 `GET /api/v1/config/{name}` | `src/views/ConfigView.vue` |
+| 配置查看 / 编辑 | `GET /api/v1/config`、`/config/{name}`、`/config/schemas`、`PUT /config/{name}` | `src/views/ConfigView.vue` + `src/components/SchemaForm.vue` |
 | 实时日志 | `GET /api/v1/logs`（SSE） | `src/views/LogsView.vue` |
 
 契约是 [`../docs/openapi.yaml`](../docs/openapi.yaml)，后端实现在 `../lib/web/`，
 设计取舍与边界见 [`../docs/refactor/06-webui.md`](../docs/refactor/06-webui.md)。
+
+## 配置编辑（v2）的三条须知
+
+1. **只提交改动过的键**。页面进入编辑时存一份快照，保存时只发真正变了的键。
+   必须这样：表单里的值掺了 schema 的 `default`（用户文件里其实没有那个键），
+   整体提交等于**用默认值覆盖用户配置**。
+2. **`server.auth` 与 `server.https` 面板改不了**（后端按 BCR-0004 封死）。
+   它们决定面板自己的门禁与监听——面板不该有能力削弱自己的门卫。
+   要改就直接编辑 yaml。
+3. **改完要重启云崽才生效**。配置是启动期一次性读进内存的，写盘不影响正在跑的进程。
+   写前会自动备份到 `config/backups/pre-write-<时间戳>-<原名>`。
 
 ## 技术选型
 

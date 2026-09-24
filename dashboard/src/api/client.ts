@@ -10,9 +10,21 @@
  *    （401 去填令牌、429 等几秒、503 等启动完成）。页面只需要展示 `message`。
  * 3. **SSE 解析**。日志流用 `fetch` + `ReadableStream` 而不是 `EventSource`：
  *    后者**不能带自定义请求头**，而这里恰好需要带令牌。
+ * 4. **写请求**另走 `sendJSONRequest`：它多了请求体序列化与 `Content-Type`
+ *    （后端挂的是 `express.json()`，不声明就解析不到 body）。
  */
 
-import type { ApiErrorBody, ConfigFile, ConfigList, LogLine, Plugins, Ready, Status } from "./types"
+import type {
+  ApiErrorBody,
+  ConfigFile,
+  ConfigList,
+  ConfigSchemas,
+  ConfigWriteResult,
+  LogLine,
+  Plugins,
+  Ready,
+  Status,
+} from "./types"
 
 /** 面板自己的前缀。宿主把它挂在 `lib/web/server.js` 的 `API_PREFIX`。 */
 const API_BASE = "/api/v1"
@@ -146,6 +158,95 @@ export function getConfigList(init?: RequestInit): Promise<ConfigList> {
  */
 export function getConfigFile(name: string, init?: RequestInit): Promise<ConfigFile> {
   return getJSON<ConfigFile>(`/config/${encodeURIComponent(name)}`, init)
+}
+
+/**
+ * 取宿主配置的 schema（v2 表单用）。
+ *
+ * 返回 `{ schemas, unmodeled }`。**`unmodeled` 必须一起用**：
+ * 它列的是"明确不建模"的文件与原因，前端据此让用户原始编辑；
+ * 只读 `schemas` 的话，那些文件会表现为"界面上凭空少了一个"。
+ */
+export function getConfigSchemas(init?: RequestInit): Promise<ConfigSchemas> {
+  return getJSON<ConfigSchemas>("/config/schemas", init)
+}
+
+/**
+ * 写入一个配置文件。
+ *
+ * # 两件必须做的事
+ *
+ * 1. **带 `confirmed: true`**：后端要求显式确认，缺了会返回 428
+ *    （不是 400——那样客户端才能区分"参数错了"与"还没确认"）。
+ * 2. **只提交想改的键**：后端是逐个 `set`，没提交的键在文件里原样保留
+ *    （包括用户手写的注释）。所以调用方传的是**增量**，不是整份配置。
+ *
+ * 后端的四道闸门（文件名白名单 / 已建模 / 不含 `server.yaml` 的
+ * `auth`·`https` / 过 schema 校验）都由它自己保证；这里只负责把错误
+ * message 原样交给界面显示——那些文案是给人看的、可直接照做。
+ */
+export function putConfigFile(
+  name: string,
+  config: Record<string, unknown>,
+  init?: RequestInit,
+): Promise<ConfigWriteResult> {
+  return sendJSONRequest<ConfigWriteResult>(
+    `/config/${encodeURIComponent(name)}`,
+    { config, confirmed: true },
+    { method: "PUT", ...init },
+  )
+}
+
+/**
+ * 发一个带 JSON 请求体的写请求。
+ *
+ * 与只读的 `getJSON` 分成两个函数而不是加参数：写请求多了两件只读没有的事
+ * ——请求体要序列化、`Content-Type` 必须声明（后端挂的是 `express.json()`，
+ * 不声明就解析不到 body，表现为"config 必须是一个对象"这种莫名其妙的错误）。
+ *
+ * `payload` 与 `init` 分开两个参数：合并成一个对象时 `body` 的类型会与
+ * `RequestInit.body`（`BodyInit`）冲突，而这里是"任意可序列化的值"。
+ *
+ * @param path 相对 `/api/v1` 的路径
+ * @param payload 要序列化成 JSON 的请求体
+ * @param init 其余请求参数（如 `signal`）
+ * @returns 解析后的响应体
+ */
+async function sendJSONRequest<T>(
+  path: string,
+  payload: unknown,
+  init: RequestInit = {},
+): Promise<T> {
+  const { header, token } = readAuth()
+
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      method: init.method ?? "PUT",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        [header]: token,
+      },
+      body: JSON.stringify(payload),
+    })
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err
+    throw new ApiError(0, "network_error", describe(0, null))
+  }
+
+  if (!res.ok) {
+    let body: ApiErrorBody | null = null
+    try {
+      body = (await res.json()) as ApiErrorBody
+    } catch {
+      body = null
+    }
+    throw new ApiError(res.status, body?.code ?? `http_${res.status}`, describe(res.status, body))
+  }
+
+  return (await res.json()) as T
 }
 
 /**

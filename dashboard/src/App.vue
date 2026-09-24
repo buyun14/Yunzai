@@ -66,8 +66,8 @@ const currentTitle = computed(() => String(route.meta?.title ?? "运维面板"))
       <template #append>
         <v-list density="compact" class="text-caption text-medium-emphasis">
           <v-list-item
-            title="v1 只读面板"
-            subtitle="配置编辑与插件启停在 v2/v3"
+            title="配置可改，改完要重启"
+            subtitle="插件启停与重启在后续版本"
             prepend-icon="mdi-information-outline"
           />
         </v-list>
