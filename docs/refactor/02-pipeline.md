@@ -252,12 +252,40 @@ flowchart LR
 | 1 | 骨架落地（不接线）：`stage.js` / `stage-order.js` / `context.js` / `scheduler.js` | ✅ 已完成 |
 | 2 | 等价 Stage 实现（9 个） | ✅ 已完成：9 个全部落地，共 150 个用例 |
 | 2a | `dispatch.js` 纯函数集 | ✅ 已完成：`matchesEvent` / `normalizeText` / `checkPermission` / `isPluginEnabled` / `shouldReplyOnlyAt` / `matchId` / `truncateForLog` / `asChatTarget` / `instantiate` / `callables` / `replyOf` |
-| 3 | 影子运行对比 | ⬜ 未开始（可直接调用新旧两套对比，**不需要 EventBus**） |
+| 3 | 影子运行对比 | ✅ 已完成：43 个场景，旧 `deal()` 与新流水线的可观测结果**逐项一致**（`tests/unit/pipeline/shadow.test.js`） |
 | 3a | `lib/pipeline/bootstrap.js` | ✅ 已完成：显式 import 全部 9 个 stage + `bootstrapPipeline()` 校验并排序；`scheduler.initialize()` 改为走它 |
 | 4 | EventBus 落地 + 切换（`deal()` 改为入队） | ⬜ 未开始 |
 | 5 | 清理旧路径 | ⬜ 未开始 |
 
-**第 2 / 3a 步的实测结果**：`pnpm test` 266 个用例全通（阶段 2 贡献 157 个）；
+### 7.3 影子运行怎么做的
+
+`tests/unit/pipeline/shadow.test.js` 两侧**都跑真实实现**，只替身化外部依赖
+（`Runtime.init` 会拉 puppeteer）。场景表在 `shadow-scenarios.js`，共 43 个，覆盖：
+
+插件筛选（`disable` / `enable` / `event` 声明缺失或不匹配）、`accept`、`getContext`、
+唤醒门槛（三种触发方式 + "未唤醒时钩子仍执行"）、权限（master / admin / owner × 允许与拦截）、
+黑白名单（用户与群 × 黑与白）、禁言与全员禁言、群冷却 / 单人冷却 / 同文去重、
+归一化细节（星铁 / 绝区零 / 斜杠前缀 / 多段消息 / 引用与文件 / notice）。
+
+比较的是**可观测结果**而不是"停在哪一步"——旧 `deal()` 无法从外部观察内部的 `return`，
+但所有分支的后果都可观测：方法调用序列、发出的消息、计数调用、归一化后的字段。
+
+三条防"假阳性"的措施（都有用例）：
+1. **防退化**：断言确实有 ≥8 个场景执行到处理器、≥3 个场景发出消息、≥30 个场景计了 `receive`。
+   否则"对比通过"可能只是"两边都在第一步就退出"。
+2. **防不敏感**：把黑名单换掉后结果必须不同。
+3. **防污染**：两侧各自用新实例/新上下文，重复运行结果必须完全一致。
+
+### 7.4 仍需人工验证的部分
+
+影子运行覆盖的是**决策逻辑**，以下不在其范围内，需要真实启动验证（阶段 5 之前完成）：
+
+- 真实的 `Runtime.init()`（替身化了，它涉及 puppeteer 与各插件的缓存注册）；
+- redis 计数写入（`loader.count` 被替身化，两侧共用替身所以能验证"何时调用"，不能验证写入了什么）；
+- 定时任务、适配器生命周期、插件热重载；
+- 影子运行用的是手工夹具，不是真实适配器载荷。建议切换前用真实账号录制一段时间的事件做一次回放。
+
+**第 2 / 3 / 3a 步的实测结果**：`pnpm test` 315 个用例全通（阶段 2 贡献 206 个）；
 ESLint 16 error / 9 warning、类型检查 273 处，均与基线**持平**。
 
 ### 7.2 落地时确认的行为细节（写代码时才看清的）
