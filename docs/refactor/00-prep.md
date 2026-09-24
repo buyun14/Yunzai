@@ -7,6 +7,8 @@
 
 ## 1. 已完成
 
+### 1.1 仓库基线
+
 | # | 事项 | 结果 |
 |---|---|---|
 | 1 | 创建开发仓目录 | `E:\ProjectCollection\2026_9\Work\Yunzai` |
@@ -22,43 +24,86 @@
 git -C "E:\ProjectCollection\2026_9\Work\Yunzai" diff --stat upstream/main HEAD
 ```
 
+### 1.2 工具链
+
+| 文件 | 作用 |
+|---|---|
+| `package.json` | `engines.node` / `packageManager` / 精确版本 `devDependencies`；`lint` 改为只读校验 |
+| `.nvmrc` | 固定开发 Node 版本 `24.19.0` |
+| `.prettierignore` | 排除第三方与生成内容，使 `prettier --check .` 可用 |
+| `eslint.config.js` | ESLint flat config，含 L0 全局变量声明 |
+| `jsconfig.json` | `checkJs` 的类型检查范围 |
+| `vitest.config.js` | 测试入口 |
+| `commitlint.config.js` + `.husky/{pre-commit,commit-msg}` | 提交信息与暂存区格式闸门 |
+| `lint-staged.config.js` | `lint-staged` 规则 |
+| `.github/workflows/ci.yml` | CI 矩阵（2 OS × 2 Node） |
+| `AGENTS.md` | 改造仓的强制规则 |
+| `tests/unit/compat/frozen-surface.test.js` | **L0 冻结面守卫**：冻结路径存在、`#miao` 映射有效、全仓相对 import 可解析 |
+
+### 1.3 对上游既有文件的改动
+
+除新增文件外，改动仅限以下 5 个文件，且都有明确理由（便于上游同步时逐项确认）：
+
+| 文件 | 改动 | 原因 |
+|---|---|---|
+| `package.json` | 新增 `license` / `engines` / `packageManager`；`lint` 改为只读校验并新增 4 个脚本；`devDependencies` 改精确版本 | §2.1、§2.3 |
+| `.gitignore` | 白名单补 `!/plugins/example`；补工具链产物忽略 | §2.6 |
+| `prettier.config.js` | 增加 `endOfLine: "auto"` | §2.3（CRLF 假阳性） |
+| `.puppeteerrc.cjs` | **仅格式化**（prettier）；语义等价（`for` + `try` 结构不变，另补了一处 ASI 防护分号） | 纳入格式闸门 |
+| `pnpm-workspace.yaml` | 仅格式化；另 pnpm 自动追加了 `minimumReleaseAgeExclude: [prettier@3.9.9]` | 见下 |
+
+> **关于 `minimumReleaseAgeExclude`**：pnpm 12 默认对过新的包版本设置冷静期（`minimumReleaseAge` 未显式配置），
+> 而本次把 `prettier` 钉到了刚发布不久的 `3.9.9`，pnpm 因此自动把该版本写入排除列表。
+> **必须保留这一行**——否则每次 `pnpm install` 都会重新写入，且 CI 上的全新安装会因冷静期拿不到该版本。
+
 ---
 
 ## 2. 待办（阶段 0 剩余工作）
 
-### 2.1 仓库元信息
+### 2.1 仓库元信息（已完成，含一处调整）
 
-- [ ] 修订 `package.json`：`name` / `version` / `description` / `repository` / `author` 改为本仓信息
-- [ ] 增加 `engines.node`，明确支持的 Node 版本下限
-      - 依赖中 `chokidar@^5`、`express@^5`、`file-type@^22` 已不支持旧版 Node
-      - **需实测确认**，不要凭印象写版本号（用 `npm view <pkg> engines` 逐个核对）
-- [ ] 增加 `.nvmrc` 或 `.node-version` 固定开发版本
-- [ ] 增加 `pnpm.overrides` 锁死可漂移的依赖（现状 `prettier: ^3.9.6` 会让 CI 结果漂移；AstrBot 把 ruff 钉死为 `0.15.22`，同理）
+- [x] 增加 `engines.node`
+      - **已实测确认**（`npm view <pkg> engines.node`）：`file-type@22` 要求 `>=22`；`puppeteer`（`"*"`，解析到最新）要求 `>=22.12.0`；`chokidar@5` 要求 `>=20.19.0`
+      - 结论：`"node": ">=22.12.0"`
+- [x] 增加 `.nvmrc`，固定开发版本为 `24.19.0`（与开发机 `node -v` 一致）
+- [x] 增加 `packageManager: "pnpm@12.6.0"`
+- [x] 增加 `license: "GPL-3.0"`（与仓库根 `LICENSE` 一致）
+- [~] `pnpm.overrides` 锁死可漂移的依赖 —— **改为实现方式**。仓库不跟踪 `pnpm-lock.yaml`（`plugins/**` 是 pnpm workspace 成员，用户增删插件会持续改动锁文件），因此改为把 `devDependencies` 全部写成**精确版本**，保证质量闸门不漂移；运行时依赖的 `^` 范围保持不动（改动面过大且不影响闸门稳定性）
+- [~] `name` / `version` / `description` / `repository` / `author` —— **暂不改**。`name` 与 `version` 仅用于展示（`lib/config/init.js` 的 `process.title`、`plugins/system/status.js`、`plugins/other/version.js`），而 `#更新` 流程会与上游做版本展示对比；`repository` 在远端地址确定前填写是无效信息。待仓库确定托管地址后再处理
 
-### 2.2 分支与提交规范
+### 2.2 分支与提交规范（已完成）
 
-- [ ] 分支模型：`main`（始终可用）+ 短生命周期 `feat/*`、`fix/*`、`chore/*`
-- [ ] 采纳 Conventional Commits（`feat: ` / `fix: ` / `chore: ` / `refactor: ` / `docs: `）
-- [ ] `husky` + `commitlint` 做提交信息闸门
-- [ ] `husky` + `lint-staged` 在提交时只对暂存区文件做格式化
+- [x] 分支模型：`main`（始终可用）+ 短生命周期 `feat/*`、`fix/*`、`chore/*` —— 写入 `AGENTS.md`
+- [x] 采纳 Conventional Commits —— `commitlint.config.js` + `.husky/commit-msg`
+- [x] `husky` + `lint-staged`：`.husky/pre-commit` 对暂存区文件跑 `prettier --write` + `eslint --fix`
+- [ ] **待验证**：Windows 上确认 `pnpm exec` 能被 Git 的 `sh` 正确解析（hooks 由 sh 执行）
 
-### 2.3 代码质量闸门
+### 2.3 代码质量闸门（配置完成，基线待登记）
 
-- [ ] `prettier.config.js` 保持现状；`package.json` 的 `lint` 脚本改为**只读校验**
-      - 现状：`"lint": "git ls-files '*.js'|xargs prettier --write --list-different"` —— 会改写文件，CI 无法使用
-      - 目标：`lint` → `prettier --check`；新增 `format` → `prettier --write`
-      - 注意保留 `git ls-files` 的"只处理已跟踪文件"语义，避免扫进 `node_modules`
-- [ ] 引入 ESLint（flat config），规则从"能捕获真实缺陷"出发，先开 `no-undef`、`no-unused-vars`、`no-floating-promises` 等
-- [ ] `jsconfig.json` + `checkJs`，先只覆盖 `lib/` 与 `plugins/{adapter,system,other}/`，逐步收紧
+- [x] `lint` 改为**只读校验**
+      - 旧写法 `git ls-files '*.js'|xargs prettier --write --list-different` 有两个问题：写模式无法当 CI 闸门；依赖 `xargs`（Windows PowerShell 下不可靠）
+      - 新写法 `prettier --check .` + `format: prettier --write .`；靠 `.prettierignore` 排除 `resources/`、`renderers/`、`lib/modules/`、`plugins/miao-plugin/`
+- [x] 引入 ESLint（flat config，`eslint.config.js`）
+      - 为 L0 注入的全局变量（`Bot` / `logger` / `redis` / `plugin` / `segment` / `Renderer`）声明 `globals`，否则 `no-undef` 会产生海量误报
+      - 只开能捕获真实缺陷的规则：`no-unused-vars`（warn）、`no-empty`（allowEmptyCatch）、`no-constant-condition`
+      - `no-floating-promises` 属于**类型感知规则**，需要 `typescript-eslint` + 类型信息，推迟到阶段 3 的收紧步骤
+- [x] `jsconfig.json` + `checkJs`，范围限定 `lib/` 与 `plugins/{adapter,system,other}/`，排除 `lib/modules` / `renderers` / `miao-plugin`
+      - 配置 `"types": ["node"]` 并引入 `@types/node@24.13.6`，使 `process` / `Buffer` 等有类型
+- [x] 登记告警/报错基线 → [`baseline/static-analysis.md`](./baseline/static-analysis.md)
+      - ESLint：25 问题（16 error / 9 warning）
+      - 类型检查：278 处（自有代码；第三方 147 处已由 `scripts/typecheck.mjs` 过滤）
+      - 其中记录了 3 个**真实缺陷**：D1 `Bot.debounce` 在 `finally` 中 `return` 吞掉异常；D2 `Milky.js` 的 `data.comment = data.comment` 自赋值；D3 `Bot` Proxy 把 Symbol 属性隐式转字符串会抛异常
+- [ ] 数字归零后在 CI 中把 `continue-on-error` 去掉（阶段 3）
 
-### 2.4 CI 骨架
+### 2.4 CI 骨架（部分完成）
 
 参照 AstrBot `.github/workflows/`（`code-format.yml`、`unit_tests.yml`、`smoke_test.yml`）建立最小集合：
 
-- [ ] `ci.yml`：矩阵（Windows + Linux）× Node 版本，跑 `lint` + `typecheck` + `test`
-- [ ] `code-format.yml` 等价物：`prettier --check`（与 `ci.yml` 合并亦可）
-- [ ] `smoke.yml`：仅启动一次 `node . --help` 或加载全部插件并退出，验证无加载期崩溃
-- [ ] 统一用 `pnpm`（仓库已有 `pnpm-workspace.yaml`），CI 中启用缓存
+- [x] `ci.yml`：矩阵（Windows + Linux）× Node（22 + 24），跑 `lint`（阻塞）+ `lint:eslint` + `typecheck` + `test`
+      - 因为仓库不跟踪锁文件，`setup-node` 的 `cache-dependency-path` 指向 `package.json`
+- [x] 统一用 `pnpm`，`pnpm/action-setup` 固定 `12.6.0`
+- [x] 设置 `HUSKY=0`，避免 CI 中安装 git hooks
+- [~] `smoke.yml` —— **推迟到阶段 2**。原计划"启动一次 `node .` 验证无加载期崩溃"在阶段 0 不可行：`Bot.run()` 会拉起 redis 进程、初始化 puppeteer、等待适配器上线，CI 中无真实账号会挂起；且没有适配器在线时插件栈本就不会被加载。阶段 2 的流水线骨架会提供"注入 fake 事件 + 假适配器"的测试夹具，届时再做真实的加载冒烟测试
 
 ### 2.5 标定与诊断基线
 
@@ -68,12 +113,14 @@ git -C "E:\ProjectCollection\2026_9\Work\Yunzai" diff --stat upstream/main HEAD
 - [ ] 录制一批真实消息事件样本（脱敏）作为阶段 2 的金标准回归输入
 - [ ] 记录插件加载失败的当前表现（`packageTips()` 的报错文案），改造后需保持一致或更好
 
-### 2.6 协作文档
+### 2.6 协作文档（基本完成）
 
-- [ ] 新增 `AGENTS.md`：构建/运行命令、代码风格、KISS 原则、"禁止新增报告型 md 文件"、发布流程
-      - 可直接参考 AstrBot 的 `AGENTS.md`（含 `uv sync` 段、pre-commit 段、KISS 段、docstring 段、release 段）
-- [ ] 新增 `CONTRIBUTING.md`（可选，若计划接受外部贡献）
-- [ ] `.gitignore` 复核：当前 `plugins/*` 白名单只放行 `adapter/system/other`，`plugins/example` 靠强制跟踪；需在文档中写明新增插件的纳管方式
+- [x] 新增 `AGENTS.md`：环境要求、常用命令、L0 冻结面、破坏性变更登记要求、提交规范、KISS、目录约定、上游同步
+- [x] `.gitignore` 复核并修订
+      - 白名单补上 `!/plugins/example`（此前靠 `git add -f` 强制跟踪）
+      - 补充工具链产物：`/coverage`、`/.husky/_/`、`/dashboard/{node_modules,dist}`、`*.tsbuildinfo`
+      - 保留 `/pnpm-lock.yaml` 忽略，并**写明理由**（`plugins/**` 是 workspace 成员）
+- [ ] `CONTRIBUTING.md`（可选，若计划接受外部贡献）
 
 ---
 
@@ -101,11 +148,13 @@ Work\Yunzai
 
 ## 4. 验收标准
 
-1. `git diff --stat upstream/main HEAD` 在阶段 0 结束时仍为空（除本仓元信息与 `docs/` 外无功能改动）；
-2. CI 在 Windows 与 Linux 上均绿灯；
+1. `git diff --stat upstream/main HEAD` 在阶段 0 结束时，除 `package.json` / `.gitignore` / 新增工具链与文档外无功能改动；
+2. CI 在 Windows 与 Linux × Node 22/24 上均绿灯；
 3. `pnpm lint` 为只读校验且退出码可用于 CI；
-4. `jsconfig.json` 存在且 `pnpm typecheck` 可运行（允许有已知报错，但需登记数量基线）；
-5. 一次 `node .` 启动流程在改造前后可复现（用第 2.5 节的记录对比）。
+4. `pnpm lint:eslint` 与 `pnpm typecheck` 可运行，告警/报错数量已登记为基线（CI 中暂设 `continue-on-error`）；
+5. `pnpm test` 至少通过 `tests/unit/compat/frozen-surface.test.js` 的 L0 守卫；
+6. 干净克隆 + `pnpm install` 后可一次通过上述全部命令；
+7. 一次 `node .` 启动流程在改造前后可复现（用第 2.5 节的记录对比）。
 
 ---
 

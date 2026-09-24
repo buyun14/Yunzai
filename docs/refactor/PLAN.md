@@ -25,6 +25,7 @@
 | [`05-persistence-config.md`](./05-persistence-config.md) | 持久化迁移策略、配置版本化、备份 | 阶段 5 |
 | [`06-webui.md`](./06-webui.md) | WebUI 与 OpenAPI 契约 | 阶段 6 |
 | [`07-ai-capabilities.md`](./07-ai-capabilities.md) | Provider / Agent / 知识库等 AI 能力 | 阶段 7（按需） |
+| [`baseline/static-analysis.md`](./baseline/static-analysis.md) | 静态分析基线：ESLint / 类型检查 / 测试的真实结果与缺陷清单 | 阶段 0 产出 |
 | [`99-compat-and-migration.md`](./99-compat-and-migration.md) | 兼容层设计与破坏性变更登记 | 贯穿全程 |
 
 ---
@@ -108,7 +109,7 @@ flowchart TD
 
 | 阶段 | 主题 | 分册 | 核心产出 | 验收信号 | 状态 |
 |---|---|---|---|---|---|
-| 0 | 前期准备 | `00-prep.md` | 仓库基线、分支模型、lint/format 闸门、CI 骨架、`AGENTS.md` | CI 绿灯；`pnpm lint` 为只读校验 | 进行中 |
+| 0 | 前期准备 | `00-prep.md` | 仓库基线、分支模型、lint/format 闸门、CI 骨架、`AGENTS.md` | CI 绿灯；`pnpm lint` 为只读校验 | ⏳ 已落地，待验证 |
 | 1 | 插件契约 | `01-plugin-contract.md` | `plugin.json` 元数据、`config.schema.json`、权限/平台/版本声明、旧基类自动合成 | 3 个内置插件完成迁移且行为不变 | 未开始 |
 | 2 | 流水线 | `02-pipeline.md` | `Stage` 洋葱模型、`Scheduler`、`EventBus`、`PipelineContext` | `deal()` 各步骤全部下沉为 Stage，旧插件无感 | 未开始 |
 | 3 | 工程化 | `03-engineering.md` | vitest 单测、`checkJs`、ESLint、husky + commitlint、覆盖率 | 核心模块覆盖率 ≥ 60% | 未开始 |
@@ -155,13 +156,16 @@ flowchart TD
 | ADR-003 | 兼容性底线 | 零破坏 / 完全自由 | **先进优先 + 重要插件保留兼容层**。内核可演进，`miao-plugin` 等重点插件必须无感 |
 | ADR-004 | 类型策略 | 全量 TS 重写 / 保持 JS / JSDoc + `checkJs` | **JSDoc + `checkJs` 渐进式**。避免一次性重写带来的巨大 diff 与兼容风险 |
 | ADR-005 | 语言与运行时 | — | 保持 Node ESM，不引入构建步骤到运行路径（与上游一致） |
+| ADR-006 | 锁文件策略 | 跟踪 `pnpm-lock.yaml` / 保持忽略 | **保持忽略**，改为把 `devDependencies` 写成精确版本。理由：`pnpm-workspace.yaml` 的 `packages` 含 `plugins/**`，用户增删插件会持续改动锁文件；跟踪它会让每个用户的仓库始终处于 dirty 状态。代价是运行时依赖的 `^` 范围不固定，需要时再用 `pnpm.overrides` 逐个锁定 |
+| ADR-007 | CI 冒烟测试时机 | 阶段 0 做启动冒烟 / 推迟 | **推迟到阶段 2**。阶段 0 无可行的启动方式：`Bot.run()` 会拉起 redis、初始化 puppeteer、等待适配器上线，CI 中无真实账号会挂起；且没有适配器在线时插件栈不会被加载。阶段 2 的假适配器 + fake 事件夹具就位后再做 |
 
 ---
 
 ## 9. 进度总表
 
 - [x] 阶段 0-1：建立开发仓基线，校验与上游一致
-- [ ] 阶段 0-2：工具链与 CI 骨架（见 `00-prep.md`）
+- [x] 阶段 0-2：工具链与 CI 骨架（见 `00-prep.md`）—— 待 CI 首次运行验证
+- [ ] 阶段 0-3：标定与诊断基线（录制事件样本、插件加载耗时、插件行为记录）
 - [ ] 阶段 1：插件契约
 - [ ] 阶段 2：流水线
 - [ ] 阶段 3：工程化

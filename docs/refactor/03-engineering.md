@@ -136,6 +136,10 @@ tests/
 | `smoke.yml` | push / PR | 3 个 OS 上跑一次"启动并加载全部插件后退出"，捕获加载期崩溃 |
 | `codeql.yml` | 定时 + push | JavaScript/TypeScript 静态安全扫描（AstrBot 亦有此项） |
 
+> **偏差记录**：原计划的第三个 workflow `smoke.yml`（启动一次并加载全部插件后退出）已**推迟到阶段 2**。
+> 阶段 0 无可行的启动方式：`Bot.run()` 会拉起 redis 进程、初始化 puppeteer、等待适配器上线，CI 中无真实账号会挂起；
+> 且没有适配器在线时插件栈本就不会被加载。阶段 2 的假适配器 + fake 事件夹具就位后再补。
+
 两个从 AstrBot 借来的细节：
 
 1. **`continue-on-error` 用于平台差异**：AstrBot 的 `unit_tests.yml` 中 Windows 作业是允许失败的。本项目的 puppeteer/截图相关测试在 CI 中天然脆弱，同样应先在 Windows 上设 `continue-on-error: true`，等稳定后再收紧。

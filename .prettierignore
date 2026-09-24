@@ -1,0 +1,18 @@
+# 第三方或生成的内容：不参与格式化
+node_modules/
+resources/
+renderers/
+lib/modules/
+plugins/miao-plugin/
+plugins/*/node_modules/
+logs/
+data/
+temp/
+config/
+coverage/
+dashboard/dist/
+
+# 文档不纳入格式化闸门
+# - README.md / CHANGELOG.md 由上游维护且频繁改动，纳入后每次同步都会产生格式冲突
+# - 纯文本内容没有结构化格式收益
+*.md

@@ -4,10 +4,20 @@
 /node_modules
 /plugins/*
 !/plugins/adapter
+!/plugins/example
 !/plugins/system
 !/plugins/other
 /renderers/*/config.yaml
 /resources
 /dump.rdb
+# 不跟踪锁文件：plugins/** 是 pnpm workspace 成员，用户增删插件会持续改动它。
+# 因此 devDependencies 采用精确版本（见 package.json）来保证质量闸门稳定。
 /pnpm-lock.yaml
 /*.sh
+
+# 工具链产物
+/coverage
+/.husky/_/
+/dashboard/node_modules
+/dashboard/dist
+*.tsbuildinfo

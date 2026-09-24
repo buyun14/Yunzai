@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # 在 CI 中跳过 git hooks 安装
+  HUSKY: 0
+
+jobs:
+  checks:
+    name: ${{ matrix.os }} / node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.6.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          # 仓库不跟踪 pnpm-lock.yaml（plugins/** 是 workspace 成员，用户装插件会持续改动它），
+          # 因此缓存键退化为 package.json。
+          cache: pnpm
+          cache-dependency-path: package.json
+
+      - name: Install
+        run: pnpm install --no-frozen-lockfile
+
+      # 阻塞项：格式化校验同时承担语法检查（prettier 无法解析的文件会报错）
+      - name: Format check
+        run: pnpm lint
+
+      # 首次引入，告警基线见 docs/refactor/03-engineering.md，清零后再改为阻塞
+      - name: ESLint
+        run: pnpm lint:eslint
+        continue-on-error: true
+
+      # 首次引入，报错基线见 docs/refactor/03-engineering.md，清零后再改为阻塞
+      - name: Typecheck
+        run: pnpm typecheck
+        continue-on-error: true
+
+      - name: Test
+        run: pnpm test

@@ -1,5 +1,5 @@
 packages:
-  - 'plugins/**'
+  - "plugins/**"
 
 patchedDependencies:
   body-parser@2: lib/modules/body-parser.patch
@@ -20,3 +20,5 @@ onlyBuiltDependencies:
   - puppeteer
   - sqlite3
   - sharp
+minimumReleaseAgeExclude:
+  - prettier@3.9.9
