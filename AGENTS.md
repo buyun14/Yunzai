@@ -117,6 +117,7 @@ pnpm web             # 模板调试页（端口 8000，不是运维面板）
 | 测试怎么写、覆盖率怎么算 | [`03-engineering.md`](docs/refactor/03-engineering.md) §3.4 |
 | 参考实现（AstrBot）借鉴了哪个文件 | 各分册顶部的「参考实现：」行；需长期保留的调研结论进 `docs/research/` |
 | 上游改了什么、怎么同步回来 | `99-compat-and-migration.md` §5 |
+| 接手 WebUI 前端（`dashboard/`） | [`06-webui.md`](docs/refactor/06-webui.md) §7 的交接单（范围、边界、起步步骤、已知坑） |
 | 面向人的上手流程 | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 
 ## 目录约定
@@ -136,7 +137,7 @@ tests/                  vitest
 docs/refactor/          改造规划与实践文档（PLAN.md 是导航）
   baseline/             阶段 0 的静态分析与启动基线（D1-D9 / O1-O7 在此）
 docs/research/          参考实现调研笔记（尚未创建，按需）
-dashboard/              [阶段 6] WebUI（尚未创建）
+dashboard/              [阶段 6] WebUI 前端（**已委托给另一个 agent**，交接单见 06-webui.md §7）
 lib/compat/             [持续] 兼容适配层（尚未创建——目前没有需要适配的旧 API）
 ```
 
