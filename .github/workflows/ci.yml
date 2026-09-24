@@ -55,3 +55,28 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    # 覆盖率与操作系统无关，因此只在单个组合上跑，避免矩阵里重复 4 遍
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.6.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: package.json
+
+      - name: Install
+        run: pnpm install --no-frozen-lockfile
+
+      # 门槛在 vitest.config.js 的 coverage.thresholds；
+      # 统计范围只含"改造涉及的核心模块"，理由见该文件注释
+      - name: Coverage
+        run: pnpm test:coverage

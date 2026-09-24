@@ -120,6 +120,45 @@ tests/
 - 需要全局 `Bot` 的模块用 `vi.stubGlobal("Bot", fakeBot)`，不要为了可测性去改生产代码的结构；
 - 覆盖率**先登记基线再设门槛**，不要一开始就设 80% 导致大量无效测试。
 
+#### 3.4.1 覆盖率（阶段 3 落地）
+
+**统计范围只含「改造涉及的核心模块」**，配在 `vitest.config.js` 的 `coverage.include`：
+
+```
+lib/pipeline/**/*.js   lib/event-bus.js
+lib/plugins/{schema,metadata,version,plugin-config,rule}.js
+```
+
+为什么不全仓统计：`lib/` 下大量代码是 vendored 第三方与
+puppeteer / 渲染 / 适配器等需要真实环境才能跑的模块，
+把它们算进来只会得到一个很大的分母和一个没指导意义的百分比。
+上面这份清单恰好是「阶段 1 / 2 改动过、且有单测覆盖」的文件——
+它们是后续重构最可能碰坏的地方。
+
+**基线（2026-09-24，共 348 个用例）**：
+
+| 指标 | 实测 | 门槛 |
+|---|---|---|
+| Statements | 95.22% | 93 |
+| Branches | 89.66% | 85 |
+| Functions | 94.23% | 92 |
+| Lines | 96.91% | 94 |
+
+门槛取实测值下浮 2 个点，**意图是「只允许下降不允许回归」而不是追求精度**：
+贴着实测值会让「合理地新增一小段尚未测到的代码」直接卡死 CI，
+反而逼出「为了过门槛而凑测试」——那正是本节开头警惕的东西。
+
+**本步顺带把 `plugin-config.js` 从 61.5% 拉到 94.9%**（行覆盖 100%）。
+差的那部分全是 `problems` 的错误上报分支，也就是
+「用户怎么知道自己把配置写坏了」的路径，值得一测。
+
+> **已知缺口**：`plugin-config.js` 仍有两条分支未覆盖——
+> `metadata.config.defaults` 命中、以及 schema 校验失败（`配置校验失败 →`）。
+> 它们需要 `plugins/<目录>/` 下**真实存在**的文件，而测试里
+> **刻意不在 `plugins/` 下造临时目录**：`PluginsLoader.load()` 会扫描该目录，
+> 一个残留的临时目录会污染真实启动与 CI 冒烟。
+> 归口阶段 5（配置持久化本身就在它的重写范围内），届时那两条分支应当随重构一并处理。
+
 ### 3.5 提交与分支
 
 - `husky` + `lint-staged`：提交前只对暂存文件跑 `prettier --write`（**不含 ESLint**，原因见下）；
@@ -139,15 +178,25 @@ tests/
 
 参考 AstrBot 的 workflow 拆分（`code-format.yml`、`unit_tests.yml`、`smoke_test.yml`、`coverage_test.yml`、`codeql.yml`），本仓收敛为 3 个：
 
-| workflow | 触发 | 内容 |
-|---|---|---|
-| `ci.yml` | push / PR | 矩阵 `os: [ubuntu-latest, windows-latest]` × `node: [20, 22]`；步骤 `pnpm i` → `lint` → `lint:eslint` → `typecheck` → `test` |
-| `smoke.yml` | push / PR | 3 个 OS 上跑一次"启动并加载全部插件后退出"，捕获加载期崩溃 |
-| `codeql.yml` | 定时 + push | JavaScript/TypeScript 静态安全扫描（AstrBot 亦有此项） |
+| workflow | 触发 | 内容 | 状态 |
+|---|---|---|---|
+| `ci.yml` | push / PR | 矩阵 `os: [ubuntu-latest, windows-latest]` × `node: [22, 24]`；步骤 `pnpm i` → `lint` → `lint:eslint` → `typecheck` → `test` | ✅ 已落地 |
+| `ci.yml` 的 `coverage` job | push / PR | 单个组合（ubuntu / node 24）跑 `pnpm test:coverage`；门槛见 §3.4.1 | ✅ 已落地 |
+| `smoke.yml` | push / PR | 跑一次"启动并加载全部插件后退出"，捕获加载期崩溃 | 🚧 待做（见下方偏差记录） |
+| `codeql.yml` | 定时 + push | JavaScript/TypeScript 静态安全扫描（AstrBot 亦有此项） | ⬜ 未开始 |
 
-> **偏差记录**：原计划的第三个 workflow `smoke.yml`（启动一次并加载全部插件后退出）已**推迟到阶段 2**。
-> 阶段 0 无可行的启动方式：`Bot.run()` 会拉起 redis 进程、初始化 puppeteer、等待适配器上线，CI 中无真实账号会挂起；
-> 且没有适配器在线时插件栈本就不会被加载。阶段 2 的假适配器 + fake 事件夹具就位后再补。
+> **矩阵里 `node` 取 `[22, 24]` 而不是 `[20, 22]`**：本项目的 `engines.node` 是 `>=22.12.0`
+> （由 `file-type@22` 的 `>=22`、`puppeteer` 的 `>=22.12.0` 实测推导而来），
+> 跑 node 20 只会得到一堆无关的失败。
+
+> **偏差记录：`smoke.yml` 推迟了两次。**
+> 阶段 0 无可行的启动方式：`Bot.run()` 会拉起 redis 进程、初始化 puppeteer、等待适配器上线，
+> CI 中无真实账号会挂起。原计划等到阶段 2 的夹具就位后补；
+> 阶段 2 结束时夹具已就位（`tests/fixtures/events/` + stdin 适配器），
+> 但**又冒出一个新障碍**：`lib/config/redis.js` 在连不上时会 `spawn` 一个 redis 二进制，
+> CI 的 runner 上没有它，且 `redisInit` 传入 `exit=true` 会直接 `Bot.exit()`。
+> 因此 `smoke.yml` 需要在工流里起一个 redis service（ubuntu 可行，windows runner 不支持 service container），
+> 或者给启动加一个可注入的 redis 替身。属于阶段 3 的待做项。
 
 两个从 AstrBot 借来的细节：
 
@@ -158,28 +207,31 @@ tests/
 
 ## 4. 实施步骤
 
-| 步 | 内容 | 可独立提交 |
-|---|---|---|
-| 1 | 新增 `.prettierignore`；`lint` 改为 `--check`，新增 `format` | ✅ 立即改善 |
-| 2 | 引入 ESLint + globals 声明，跑一次全量，**记录告警数基线** | ✅ |
-| 3 | 新增 `jsconfig.json`（`checkJs` 开启，`strict` 关闭），跑一次，记录报错数基线 | ✅ |
-| 4 | 引入 vitest，先写 3 个纯函数测试（`schema.js` 校验器最合适） | ✅ |
-| 5 | `husky` + `lint-staged` + `commitlint` | ✅ |
-| 6 | 新增 `ci.yml`（先只跑 lint + test，typecheck 设 `continue-on-error`） | ✅ |
-| 7 | 新增 `smoke.yml` | ✅ |
-| 8 | 收紧：按目录消除 ESLint 告警与 TS 报错，逐目录把 `continue-on-error` 去掉 | 逐步 |
+| 步 | 内容 | 可独立提交 | 状态 |
+|---|---|---|---|
+| 1 | 新增 `.prettierignore`；`lint` 改为 `--check`，新增 `format` | ✅ 立即改善 | ✅ 阶段 0 |
+| 2 | 引入 ESLint + globals 声明，跑一次全量，**记录告警数基线** | ✅ | ✅ 阶段 0（16 error / 9 warning） |
+| 3 | 新增 `jsconfig.json`（`checkJs` 开启，`strict` 关闭），跑一次，记录报错数基线 | ✅ | ✅ 阶段 0（278 → 阶段 2 末为 270） |
+| 4 | 引入 vitest，先写 3 个纯函数测试（`schema.js` 校验器最合适） | ✅ | ✅ 阶段 0 起，阶段 2 扩到 348 用例 |
+| 5 | `husky` + `lint-staged` + `commitlint` | ✅ | ✅ 阶段 0 |
+| 6 | 新增 `ci.yml`（先只跑 lint + test，typecheck 设 `continue-on-error`） | ✅ | ✅ 阶段 0 |
+| 6a | **覆盖率**：登记基线 → 设门槛 → 接进 CI | ✅ | ✅ 阶段 3（见 §3.4.1） |
+| 7 | 新增 `smoke.yml` | ✅ | 🚧 阶段 3 待做（redis 障碍，见 §3.6） |
+| 8 | 收紧：按目录消除 ESLint 告警与 TS 报错，逐目录把 `continue-on-error` 去掉 | 逐步 | 🚧 未开始 |
 
 ---
 
 ## 5. 验收标准
 
-- [ ] `pnpm lint` 为只读校验，在 Windows 与 Linux 上结果一致
-- [ ] `.prettierignore` 生效：修改 `lib/modules/` 下任何文件都不会被格式化
-- [ ] `pnpm lint:eslint` 通过（或全部剩余告警已登记为基线且有 issue 跟踪）
-- [ ] `pnpm typecheck` 可运行，报错数量已登记基线
-- [ ] `pnpm test` 至少覆盖：`lib/plugins/schema.js` 校验器、调度器递归逻辑、`RateLimit` 拆分的两个 Stage
-- [ ] `ci.yml` 在 Windows 与 Linux matrix 上均绿灯
-- [ ] 提交不符合 Conventional Commits 时被 `commitlint` 拒绝
+- [x] `pnpm lint` 为只读校验，在 Windows 与 Linux 上结果一致
+- [x] `.prettierignore` 生效：修改 `lib/modules/` 下任何文件都不会被格式化
+- [x] `pnpm lint:eslint` 可运行，剩 16 error / 9 warning，**已登记基线**（见 `baseline/static-analysis.md`）
+- [x] `pnpm typecheck` 可运行，报错数量已登记基线（阶段 2 末为 270 处）
+- [x] `pnpm test` 至少覆盖：`lib/plugins/schema.js` 校验器、调度器递回逻辑、`RateLimit` 拆分的两个 Stage
+- [x] **覆盖率**：核心模块 95.22% / 89.66% / 94.23% / 96.91%，门槛已入 `vitest.config.js` 并在 CI 里阻塞（`03-engineering.md` §3.4.1）
+- [ ] `smoke.yml` 在 3 个 OS 上跑通（redis 障碍待解）
+- [ ] `ci.yml` 在 Windows 与 Linux matrix 上均绿灯（本地闸门全绿，**尚未在真实 runner 上跑过**）
+- [x] 提交不符合 Conventional Commits 时被 `commitlint` 拒绝（阶段 0 已实测）
 - [ ] `pnpm i` + `pnpm test` 在干净克隆的仓库上可一次通过（无隐式全局状态依赖）
 
 ---
