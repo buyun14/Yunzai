@@ -51,11 +51,31 @@ describe("L0 冻结面", () => {
 
   it("package.json 的 #miao 子路径映射存在且指向真实文件", () => {
     const imports = pkg.imports ?? {}
-    for (const key of ["#miao", "#miao.models"]) {
-      expect(imports[key], `缺少 imports 映射 ${key}`).toBeTruthy()
-      expect(existsSync(path.join(root, imports[key])), `${key} → ${imports[key]} 不存在`).toBe(
-        true,
-      )
+
+    // miao-plugin 是 gitignore 的第三方插件，干净克隆与 CI 中都不存在，
+    // 所以这里必须分两层断言：
+    //   1) 映射字符串逐字固定 —— 任何环境下都可校验，这才是真正的冻结契约；
+    //   2) 目标文件存在 —— 只在插件已安装时可校验，它防的是另一类风险：
+    //      vendored 插件升级后入口挪位，导致 `import("#miao")` 在运行时才炸。
+    // 若把 2) 写成无条件断言，干净克隆会永久失败（本测试原先正是如此），
+    // 接受标准"干净克隆上一次通过"也就无从满足。
+    const EXPECTED = {
+      "#miao": "./plugins/miao-plugin/components/index.js",
+      "#miao.models": "./plugins/miao-plugin/models/index.js",
+    }
+
+    for (const [key, expected] of Object.entries(EXPECTED)) {
+      expect(imports[key], `缺少 imports 映射 ${key}`).toBe(expected)
+    }
+
+    if (!existsSync(path.join(root, "plugins/miao-plugin"))) {
+      // 显式记录"本次跳过了什么"，避免读日志时误以为文件存在性已被校验
+      console.info("[frozen-surface] 未安装 miao-plugin，跳过 #miao 目标文件存在性校验")
+      return
+    }
+
+    for (const [key, rel] of Object.entries(EXPECTED)) {
+      expect(existsSync(path.join(root, rel)), `${key} → ${rel} 不存在`).toBe(true)
     }
   })
 

@@ -232,7 +232,11 @@ puppeteer / 渲染 / 适配器等需要真实环境才能跑的模块，
 - [ ] `smoke.yml` 在 3 个 OS 上跑通（redis 障碍待解）
 - [ ] `ci.yml` 在 Windows 与 Linux matrix 上均绿灯（本地闸门全绿，**尚未在真实 runner 上跑过**）
 - [x] 提交不符合 Conventional Commits 时被 `commitlint` 拒绝（阶段 0 已实测）
-- [ ] `pnpm i` + `pnpm test` 在干净克隆的仓库上可一次通过（无隐式全局状态依赖）
+- [x] `pnpm i` + `pnpm test` 在干净克隆的仓库上可一次通过（无隐式全局状态依赖）
+      —— **首次实测就抓到一处违规**：`frozen-surface.test.js` 无条件断言
+      `#miao` 的目标文件存在，而 `miao-plugin` 是 gitignore 的第三方插件，
+      干净克隆与 CI 里都没有，会直接红。已改为两层断言（映射字符串逐字固定，
+      文件存在性仅在插件已安装时校验），并记入 §3.4 同级的"环境无关性"要求。
 
 ---
 

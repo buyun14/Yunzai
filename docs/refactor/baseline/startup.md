@@ -221,6 +221,54 @@ if (e.group && (e.group.mute_left > 0 ||
 
 ---
 
+### O5：一条 vitest 警告，以及**一个被我自己否掉的怀疑**
+
+阶段 3 在干净克隆里跑测试时，输出里有一条 vite 警告：
+
+```
+[vite] (ssr) warning: Invalid file URL: must not contain hostname
+  file://${process.cwd()}/plugins/ICQQ-Plugin/node_modules/icqq/lib/message/elements.js
+```
+
+出处是 `lib/modules/oicq/index.js:36`（自有 shim，非 vendored；上游同写法，非本次重构引入）：
+
+```js
+try {
+  const { segment: icqq_segment } = await import(
+    `file://${process.cwd()}/plugins/ICQQ-Plugin/node_modules/icqq/lib/message/elements.js`
+  )
+  …
+} catch {}
+```
+
+**我最初的判断**：Windows 上 `process.cwd()` 是 `E:\…`，于是 URL 变成 `file://E:\…`，
+`E:` 被当成 hostname → URL 非法 → 被 `catch {}` 静默吞掉 →
+"Windows 上 icqq 的 segment 扩展从来没生效过"。
+
+**探针把上面的判断否掉了**（两步，都用真实存在的文件）：
+
+```
+构造出的 URL = file://E:\ProjectCollection\2026_9\Work\Yunzai/plugins/x.js
+失败 -> ERR_MODULE_NOT_FOUND | Cannot find module 'E:\…\plugins\x.js'   <- 路径解析是对的
+
+URL = file://C:\Users\ADMINI~1\AppData\Local\Temp\probe-target.mjs
+结果 = 加载成功, ok = loaded                                            <- 真的能加载
+```
+
+即 **Node 对本写法是宽容的**：`file://` 后面直接跟 Windows 绝对路径它照样能解析并加载，
+只是 **vite 的解析器比 Node 严格**，因此在 vitest 下报这条警告、并且这次动态 import
+不会被 vite 接管。生产环境（不走 vite）在 Windows 上是**能工作**的。
+
+**结论**：这不是缺陷，**不改**。真正的价值有两条：
+
+1. 记下这条警告的来历，免得以后每次在 CI 日志里看到它都要重新查一遍；
+2. 记下**判断被探针推翻的过程**——O3 的教训是"先隔离验证再断言"，
+   这次探针在两分钟内就拦下了一条本来会写进文档的错误结论。
+   规范写法（`pathToFileURL(join(...)).href`）能顺带消掉警告，但它属于
+   `segment` 构造 / 适配器层，归口**阶段 4**，本阶段不为一条无害警告改动运行时行为。
+
+---
+
 ## 4. 未采集项与替代方案
 
 `00-prep.md` §2.5 的"录制真实消息事件样本"**未完成**，最初的原因是本环境没有可用的平台账号。
