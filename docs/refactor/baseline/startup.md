@@ -269,6 +269,50 @@ URL = file://C:\Users\ADMINI~1\AppData\Local\Temp\probe-target.mjs
 
 ---
 
+### O6：vitest 下 `globalThis.logger` 读不到 `.logger`（机制未查明）
+
+**现象**：在 vitest 里导入 `lib/bot.js`（它会经 `lib/config/init.js` 触发 `setLog()`）
+之后，调用任何走 `util.makeLog` 的代码都会抛：
+
+```
+TypeError: Cannot read properties of undefined (reading 'defaultLogger')
+  ❯ Object.isLogLevelEnabled lib/util.js:28:32   ← logger.logger.defaultLogger
+  ❯ Object.makeLog lib/util.js:43:15
+```
+
+**实测到的 `globalThis.logger` 形态**（在测试里断言出来的完整字符串）：
+
+```
+typeof=object | 无.logger | 有.blue | 构造器=Object
+| 键=calls/trace/debug/info/warn/error/fatal/mark/red/green/blue/yellow/cyan/magenta/gray/bold
+| global 与 globalThis 相等=true
+```
+
+也就是说：它**有** `lib/config/log.js` 那些被包装过的日志方法（trace…mark）与 chalk 的颜色方法，
+却读不到 `.logger` ——而 `setLog()` 里明明先赋值了 `chalk.logger = {...}`，
+并且紧接着的 `for (const i in chalk.logger)` 能正确迭代出方法名（否则那些方法不会被包装出来）。
+
+**已排除的假设**：
+
+| 假设 | 实验 | 结论 |
+|---|---|---|
+| 是我在测试里 `vi.stubGlobal("logger", ...)` 干扰了后续赋值 | 把 stub 整段去掉重跑 | **依然复现** → 与本 stub 无关 |
+| 生产环境也有这个问题 | 真机运行 + `pnpm smoke` | **不复现** → 只有 vitest 环境有 |
+| 纯 node 下也这样 | 用几行脚本 stub 掉 logger 再 `import("../lib/bot.js")` | **不复现**：`typeof logger` 是 `function`（chalk 实例），且 `logger.logger` 可读 |
+
+**当前处置**：`tests/unit/bot-proxy.test.js` 对 `util.makeLog` 打桩绕过。
+这个取舍是安全的——该测试验证的缺陷（Proxy 陷阱里用模板字符串插 Symbol）发生在
+**拼出日志字符串**这一步，也就是 `makeLog` 被调用**之前**（模板字符串是实参，先求值）。
+打桩前后都做过红绿验证：去掉 `String(prop)` 后测试立刻因
+`TypeError: Cannot convert a Symbol value to a string` 变红。
+
+**为什么值得记下来**：本仓以后任何"导入 `lib/bot.js` 或调用 `util.makeLog`"的测试
+都会撞上它，而错误信息（`defaultLogger`）完全不指向真正的原因。
+机制（vite 的 SSR 转换？chalk 在 SSR 下的行为？）未查明，暂不投入——
+它不影响生产，且已有稳定绕法。
+
+---
+
 ## 4. 未采集项与替代方案
 
 `00-prep.md` §2.5 的"录制真实消息事件样本"**未完成**，最初的原因是本环境没有可用的平台账号。

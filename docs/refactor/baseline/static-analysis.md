@@ -12,7 +12,7 @@
 |---|---|---|---|---|
 | 格式化 + 语法 | `pnpm lint` | ✅ 通过 | ✅ 通过 | **阻塞** |
 | ESLint | `pnpm lint:eslint` | ❌ 25 问题（16 error / 9 warning） | ✅ **0 问题** | **阻塞**（原 `continue-on-error`） |
-| 类型检查 | `pnpm typecheck` | ❌ 278 处（自有代码，第三方 147 处已排除） | ❌ **140** 处 | `continue-on-error` |
+| 类型检查 | `pnpm typecheck` | ❌ 278 处（自有代码，第三方 147 处已排除） | ❌ **137** 处 | `continue-on-error` |
 | 单元测试 | `pnpm test` | ✅ 5 通过（L0 冻结面守卫） | ✅ 352 通过 | **阻塞** |
 
 复现：
@@ -37,14 +37,15 @@ ESLint 基线已清零，处理方式**逐条不同**——凡是有行为风险
 | P1 · `no-fallthrough` | ✅ 补 `break` | 两处的 `break` 都不可达（前一行是 `process.exit()`）；写上是为了标明意图，并让将来把 exit 改成可返回实现时仍然正确 |
 | D2 · `no-self-assign` | ✅ 删除自赋值 | **没有**顺手加 `??= ""` 兜底——那需要先确认 Milky 协议，属于"不要凭猜"的范围 |
 | D1 · `no-unsafe-finally` | ✅ 改写 + 补单测 | 见下 |
-| D3 · Symbol 隐式转字符串 | ⬜ 未处理 | 属类型检查项，随 §4 第 4 步一起做 |
+| D3 · Symbol 隐式转字符串 | ✅ 已修 + 配单测 | 见 §3.3；测试 `tests/unit/bot-proxy.test.js`（去掉 `String(prop)` 会立刻变红） |
 
-同一轮的**类型检查**进展（270 → 140）：
+同一轮的**类型检查**进展（270 → 137）：
 
 | 项 | 处理 | 说明 |
 |---|---|---|
 | `Cfg` 缺 9 个动态配置组（100 处） | ✅ 补交叉类型 | 见 §3.5 |
 | TS8032 点号 `@param`（30 处） | ✅ 改为描述列表 | 见 §3.4；这一处的“看似零风险”是假的 |
+| D3 Symbol 隐式转字符串（3 处） | ✅ `String(prop)` + 单测 | 真缺陷，见 §3.3 |
 
 ### D1 的两处修正
 
@@ -183,7 +184,9 @@ util.makeLog("trace", `不存在 Bot.${prop}`)
 `TypeError: Cannot convert a Symbol value to a string`。
 
 - 影响：不是"日志打不出来"，而是**访问不存在的 Symbol 属性时直接抛异常**，且抛在 Proxy 内部，堆栈会误导排查方向。
-- 修法：改为 `String(prop)`（`lib/bot.js:88` 与 `:92` 两处）。
+- 修法：改为 `String(prop)`（`lib/bot.js:88` 与 `:92` 两处）。**已于阶段 3 第 8 步修复**，
+  并由 `tests/unit/bot-proxy.test.js` 锁住（去掉 `String(prop)` 后两个用例立刻因
+  `TypeError: Cannot convert a Symbol value to a string` 变红）。
 - 这条同时说明：类型检查虽然噪声大，但确实能发现 ESLint 覆盖不到的问题。
 
 ### 3.4 TS8032：JSDoc「点号名」的语法约束（30 处，已清零）
@@ -249,10 +252,12 @@ export default /** @type {Cfg & CfgGroups} */ (new Cfg())
 
 1. ✅ 清理 §2.3 的死代码（无行为影响，可一次性完成）。
 2. ⏳ 修复 D1 / D2 / D3，各自配单测（D1 必须覆盖 reject 场景）。
-   D1 已改写并配了 `tests/unit/util/debounce.test.js`（4 个用例，覆盖 reject 与排队重试）；
-   D2 已删除自赋值；**D3 未做**（它属类型检查项，随第 4 步一起）。
+   **三条均已修复并各配单测**：D1 → `tests/unit/util/debounce.test.js`；
+   D2 删除自赋值（无需测试，无行为）；D3 → `tests/unit/bot-proxy.test.js`（已红绿验证）。
 3. ⬜ 引入 `typescript-eslint` 并开启类型感知规则（`no-floating-promises`），这需要先降低类型噪声。
-4. ⬜ 收敛 §3.2 的四类类型噪声，按目录推进：`lib/pipeline/` → `lib/plugins/` → `lib/message/` → `lib/config/` → `lib/bot.js`。
+4. 🚧 收敛 §3.2 的四类类型噪声，按目录推进：`lib/pipeline/` → `lib/plugins/` → `lib/message/` → `lib/config/` → `lib/bot.js`。
+   270 → 137；`lib/pipeline/` 与 TS8032 已清零，重灾区剩下 `plugins/adapter/Milky.js`（19）、
+   `lib/bot.js`（18）、`lib/util.js`（13）。
 5. ⏳ 数字归零后，把 CI 中 `lint:eslint` 与 `typecheck` 的 `continue-on-error` 去掉。
    **`lint:eslint` 已完成**（ESLint 归零，`ci.yml` 已改为阻塞，`lint-staged.config.js`
    也把 eslint 加进了提交钩子）；`typecheck` 依赖第 4 步。
