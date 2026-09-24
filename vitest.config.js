@@ -22,6 +22,7 @@ const CORE_MODULES = [
   "lib/config/version.js",
   "lib/config/backup.js",
   "lib/config/migrate.js",
+  "lib/config/diff.js",
   "lib/config/migrations/*.js",
   "lib/plugins/schema.js",
   "lib/plugins/metadata.js",
@@ -49,9 +50,9 @@ export default defineConfig({
        *
        * | 指标 | 2026-09-24 实测 | 门槛 |
        * |---|---|---|
-       * | Statements | 95.87% | 93 |
-       * | Branches   | 90.67% | 88 |
-       * | Functions  | 95.80% | 93 |
+       * | Statements | 95.81% | 93 |
+       * | Branches   | 90.65% | 88 |
+       * | Functions  | 96.15% | 93 |
        * | Lines      | 97.42% | 95 |
        *
        * 留 2 个点而不是贴着实测值，是为了让“合理地新增一小段尚未测到的代码”
@@ -63,7 +64,7 @@ export default defineConfig({
        * （**不能整个目录加**：`config.js` / `init.js` / `redis.js` 需要真实环境，
        * 算进来只会得到一个大分母）；两次都让实测值上升。
        * 各目录自己的实测：`lib/message` 100 / 96.61 / 100 / 100，
-       * `lib/adapter` 97.43 / 92.85 / 100 / 96.77，`lib/config` 100 / 93.75 / 100 / 100。
+       * `lib/adapter` 97.43 / 92.85 / 100 / 96.77，`lib/config` 97.60 / 91.89 / 100 / 98.67。
        */
       thresholds: {
         statements: 93,

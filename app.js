@@ -23,6 +23,28 @@ switch (process.env.app_type || process.argv[2]) {
     // 同上：process.exit() 不返回
     break
   }
+  case "config:diff": {
+    // 只读命令。三个刻意的选择：
+    //
+    // 1. **不导入** lib/config/config.js——它的构造函数会跑 initCfg()，
+    //    那会往用户的 config/config/ 里复制文件。一个叫"差异报告"的命令
+    //    顺手改用户的配置，是最不该有的意外。所以这里只依赖 diff.js 自己。
+    // 2. 要等 stdout 写完再退：管道下 stdout 是异步的，写完之前 exit
+    //    会把长输出截断（--all 时很容易碰到）。
+    // 3. 但"等写完"不能靠传回调——回调是异步的，而 `break` 之后控制流会直接
+    //    走到下面的 `new Bot()`，于是这个"只读报告"会顺手把整个 bot 启动起来。
+    //    实测撞上过：它还因为端口被占用，向运行中的实例发了 /exit 把它挤掉。
+    //    所以用 await 等写入完成，**同步地**把进程结束在 switch 里。
+    const { collectDiff, formatDiff } = await import("./lib/config/diff.js")
+    const text = formatDiff(await collectDiff(), {
+      limit: process.argv.includes("--all") ? Infinity : 20,
+    })
+    await new Promise(resolve => process.stdout.write(`${text}\n`, resolve))
+    process.exit()
+    // process.exit() 不返回，这个 break 不会执行；写上是为了标明分支意图，
+    // 也让 no-fallthrough 不必依赖"注释例外"才能通过（同上面的 stop 分支）。
+    break
+  }
   case "pm2":
     global.start_type = "pm2"
     break

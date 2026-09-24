@@ -13,6 +13,7 @@
   "packageManager": "pnpm@12.6.0",
   "scripts": {
     "app": "node .",
+    "config:diff": "node . config:diff",
     "dev": "node . dev",
     "web": "node lib/tools/web.js",
     "start": "pm2 start config/pm2.yaml",
