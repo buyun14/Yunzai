@@ -16,6 +16,9 @@ export class example2 extends plugin {
         },
       ],
     })
+
+    /** 插件配置：由 plugins/example/config.schema.json 校验并填充默认值 */
+    this.cfg = this.contract?.config?.repeat ?? {}
   }
 
   /** 复读 */
@@ -23,7 +26,7 @@ export class example2 extends plugin {
     /** 设置上下文，后续接收到内容会执行doRep方法 */
     this.setContext("doRep")
     /** 回复 */
-    return this.reply("请发送要复读的内容", false, { at: true })
+    return this.reply(this.cfg.prompt, false, { at: true })
   }
 
   /** 接受内容 */
@@ -31,6 +34,6 @@ export class example2 extends plugin {
     /** 结束上下文 */
     this.finish("doRep")
     /** 复读内容 */
-    return this.reply(this.e.message, false, { recallMsg: 5 })
+    return this.reply(this.e.message, false, { recallMsg: this.cfg.recallSeconds })
   }
 }

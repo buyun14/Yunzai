@@ -1,0 +1,57 @@
+{
+  "type": "object",
+  "title": "示例插件配置",
+  "description": "演示 JSON Schema 受控子集。字段含义与支持的写法见 docs/refactor/01-plugin-contract.md",
+  "properties": {
+    "repeat": {
+      "type": "object",
+      "title": "复读",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "title": "提示语",
+          "description": "执行 #复读 之后的提示文本",
+          "default": "请发送要复读的内容",
+          "maxLength": 200
+        },
+        "recallSeconds": {
+          "type": "integer",
+          "title": "撤回延迟（秒）",
+          "description": "发出的复读消息在多少秒后撤回，0 表示不撤回",
+          "default": 5,
+          "minimum": 0,
+          "maximum": 120
+        }
+      }
+    },
+    "newcomer": {
+      "type": "object",
+      "title": "欢迎新人",
+      "properties": {
+        "message": {
+          "type": "string",
+          "title": "欢迎语",
+          "default": "欢迎新人！",
+          "x-widget": "textarea"
+        },
+        "cooldown": {
+          "type": "integer",
+          "title": "冷却时间（秒）",
+          "default": 30,
+          "minimum": 0
+        }
+      }
+    },
+    "leaveNotice": {
+      "type": "object",
+      "title": "退群通知",
+      "properties": {
+        "tips": {
+          "type": "string",
+          "title": "退群提示词",
+          "default": "退群了"
+        }
+      }
+    }
+  }
+}

@@ -111,8 +111,8 @@ flowchart TD
 | 阶段 | 主题 | 分册 | 核心产出 | 验收信号 | 状态 |
 |---|---|---|---|---|---|
 | 0 | 前期准备 | `00-prep.md` | 仓库基线、分支模型、lint/format 闸门、CI 骨架、`AGENTS.md` | CI 绿灯；`pnpm lint` 为只读校验 | ✅ 完成（1 项延期） |
-| 1 | 插件契约 | `01-plugin-contract.md` | `plugin.json` 元数据、`config.schema.json`、权限/平台/版本声明、旧基类自动合成 | 3 个内置插件完成迁移且行为不变 | ⏭️ 下一个 |
-| 2 | 流水线 | `02-pipeline.md` | `Stage` 洋葱模型、`Scheduler`、`EventBus`、`PipelineContext` | `deal()` 各步骤全部下沉为 Stage，旧插件无感 | 未开始 |
+| 1 | 插件契约 | `01-plugin-contract.md` | `plugin.json` 元数据、`config.schema.json`、权限/平台/版本声明、旧基类自动合成 | 3 个内置插件完成迁移且行为不变 | ✅ 完成 |
+| 2 | 流水线 | `02-pipeline.md` | `Stage` 洋葱模型、`Scheduler`、`EventBus`、`PipelineContext` | `deal()` 各步骤全部下沉为 Stage，旧插件无感 | ⏭️ 下一个 |
 | 3 | 工程化 | `03-engineering.md` | vitest 单测、`checkJs`、ESLint、husky + commitlint、覆盖率 | 核心模块覆盖率 ≥ 60% | 未开始 |
 | 4 | 消息与适配器 | `04-message-adapter.md` | `Component` 抽象、适配器注册表与能力表、会话唯一键 `umo` | Milky/Satori 走同一组件路径 | 未开始 |
 | 5 | 持久化与配置 | `05-persistence-config.md` | 幂等迁移、`config_version`、结构化备份导出 | 老配置/老库可自动升级并可回滚 | 未开始 |
@@ -167,7 +167,8 @@ flowchart TD
 - [x] 阶段 0-1：建立开发仓基线，校验与上游一致
 - [x] 阶段 0-2：工具链与 CI 骨架（见 `00-prep.md`）
 - [x] 阶段 0-3：标定与诊断基线（启动基线已采集；事件 fixture 改为阶段 2 前置任务）
-- [ ] 阶段 1：插件契约
+- [x] 阶段 1：插件契约（`plugin.json` + 受控 schema + 版本闸门 + 契约注入）
+- [ ] 阶段 2：流水线
 - [ ] 阶段 1：插件契约
 - [ ] 阶段 2：流水线
 - [ ] 阶段 3：工程化

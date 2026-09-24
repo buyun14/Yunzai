@@ -1,0 +1,12 @@
+{
+  "name": "yunzai-example",
+  "version": "1.0.0",
+  "description": "插件写法示例：演示元数据、配置 schema 与契约读取",
+  "author": "TimeRainStarSky",
+  "repo": "https://github.com/TimeRainStarSky/Yunzai",
+  "yunzai": ">=3.1.0",
+  "capabilities": ["message"],
+  "config": {
+    "schema": "config.schema.json"
+  }
+}

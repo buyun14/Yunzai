@@ -1,0 +1,7 @@
+{
+  "name": "yunzai-system",
+  "description": "Yunzai 内置系统插件：帮助、状态、好友/群管理、主人设置等",
+  "author": "TimeRainStarSky",
+  "repo": "https://github.com/TimeRainStarSky/Yunzai",
+  "capabilities": ["message", "task", "render"]
+}

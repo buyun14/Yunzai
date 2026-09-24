@@ -12,10 +12,12 @@
  * 后续若需要更强的类型约束，应先在 lib/ 中补 JSDoc，而不是在这里收窄类型。
  */
 
-declare const Bot: any
-declare const logger: any
-declare const redis: any
-declare const plugin: any
-declare const segment: any
-declare const Renderer: any
+// 用 declare var 而不是 declare const：
+// 只有 var 声明才会成为 globalThis 的属性，这样 `globalThis.logger?.x` 这类写法才有类型。
+declare var Bot: any
+declare var logger: any
+declare var redis: any
+declare var plugin: any
+declare var segment: any
+declare var Renderer: any
 declare var start_type: string | undefined

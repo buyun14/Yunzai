@@ -1,0 +1,7 @@
+{
+  "name": "yunzai-other",
+  "description": "Yunzai 内置运维插件：安装、更新、重启、版本、日志发送",
+  "author": "TimeRainStarSky",
+  "repo": "https://github.com/TimeRainStarSky/Yunzai",
+  "capabilities": ["message", "task"]
+}

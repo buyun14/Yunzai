@@ -5,6 +5,9 @@ export class newcomer extends plugin {
       dsc: "新人入群欢迎",
       event: "notice.group.increase",
     })
+
+    /** 插件配置：由 plugins/example/config.schema.json 校验并填充默认值 */
+    this.cfg = this.contract?.config?.newcomer ?? {}
   }
 
   /** 接受到消息都会执行一次 */
@@ -12,9 +15,9 @@ export class newcomer extends plugin {
     if (this.e.user_id == this.e.self_id) return
 
     /** 定义入群欢迎内容 */
-    let msg = "欢迎新人！"
+    let msg = this.cfg.message
     /** 冷却cd 30s */
-    let cd = 30
+    let cd = this.cfg.cooldown
 
     /** cd */
     let key = `Yz:newcomers:${this.e.group_id}`
@@ -38,8 +41,9 @@ export class outNotice extends plugin {
       event: "notice.group.decrease",
     })
 
+    this.cfg = this.contract?.config?.leaveNotice ?? {}
     /** 退群提示词 */
-    this.tips = "退群了"
+    this.tips = this.cfg.tips
   }
 
   async accept() {
