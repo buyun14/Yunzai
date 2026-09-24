@@ -191,6 +191,19 @@ puppeteer / 渲染 / 适配器等需要真实环境才能跑的模块，
 > （由 `file-type@22` 的 `>=22`、`puppeteer` 的 `>=22.12.0` 实测推导而来），
 > 跑 node 20 只会得到一堆无关的失败。
 
+> **首次真实 CI 结果（2026-09-24，`286d823`）：全部绿灯。**
+> `coverage` ✅、`ubuntu-latest / node 22` ✅、`ubuntu-latest / node 24` ✅、
+> `windows-latest / node 22` ✅、`windows-latest / node 24` ✅、`smoke` ✅。
+>
+> 第一轮并不绿：四条矩阵腿全挂在 `Typecheck` 步，而本地是 0 处。**根因是闸门本身
+> 依赖了「本机装了 miao-plugin」这个环境事实**——`#miao` 指向被 gitignore 的第三方插件，
+> 干净克隆与 CI 里解析不到，报 TS2307 共 5 处。修法与复现方式见
+> [`baseline/static-analysis.md`](./baseline/static-analysis.md) §3.6。
+>
+> 这次还顺带证实了一件此前只是“推演”的事：CI 步骤是顺序的，前一步失败后后续几步
+> **不会执行**。所以那几轮里 `pnpm test` 与 `pnpm smoke` 其实从未真正跑过——
+> “CI 有那个步骤”不等于“CI 跑过那个步骤”。
+
 > **偏差记录：`smoke.yml` 推迟了两次，最后是这样落地的。**
 > 阶段 0 无可行的启动方式：`Bot.run()` 会拉起 redis 进程、初始化 puppeteer、等待适配器上线，
 > CI 中无真实账号会挂起。当时计划等阶段 2 的夹具就位后补；阶段 2 结束时夹具已就位，
@@ -249,9 +262,14 @@ puppeteer / 渲染 / 适配器等需要真实环境才能跑的模块，
 - [x] `pnpm test` 至少覆盖：`lib/plugins/schema.js` 校验器、调度器递回逻辑、`RateLimit` 拆分的两个 Stage
 - [x] **覆盖率**：核心模块 95.22% / 89.66% / 94.23% / 96.91%，门槛已入 `vitest.config.js` 并在 CI 里阻塞（`03-engineering.md` §3.4.1）
 - [x] `smoke.yml` 跑通：本地实测加载插件 27 个 / 适配器 7 个 / 监听 5 个，
-      随后通过 `node . stop` 优雅退出；失败路径也实测过（无孤儿进程、无残留 redis）
-      （**尚未在真实 runner 上跑过**，CI 上依赖 redis service container）
-- [ ] `ci.yml` 在 Windows 与 Linux matrix 上均绿灯（本地闸门全绿，**尚未在真实 runner 上跑过**）
+      随后通过 `node . stop` 优雅退出；失败路径也实测过（无孤儿进程、无残留 redis）。
+      **已在真实 runner 上连续三次成功**（ubuntu + `redis:7-alpine` service container）
+- [x] `ci.yml` 在 Windows 与 Linux matrix 上均绿灯：`286d823` 上 `coverage`、
+      `ubuntu-latest / node 22`、`ubuntu-latest / node 24`、`windows-latest / node 22`、
+      `windows-latest / node 24` 五条全部 success，且四条矩阵腿的
+      `Format check` / `ESLint` / `Typecheck` / `Test` 逐步均为 success。
+      第一轮并不绿——四条腿全挂在 `Typecheck`（本地闸门则全绿），
+      根因与修法见 [`baseline/static-analysis.md`](./baseline/static-analysis.md) §3.6
 - [x] 提交不符合 Conventional Commits 时被 `commitlint` 拒绝（阶段 0 已实测）
 - [x] `pnpm i` + 全部门在干净克隆上可一次通过（无隐式环境依赖）
       —— **首次实测就抓到一处违规**：`frozen-surface.test.js` 无条件断言

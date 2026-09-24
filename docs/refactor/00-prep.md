@@ -156,7 +156,7 @@ Work\Yunzai
 | # | 标准 | 状态 |
 |---|---|---|
 | 1 | `git diff --stat upstream/main HEAD` 只包含工具链与文档，无功能改动 | ✅ 已确认 |
-| 2 | CI 在 Windows 与 Linux × Node 22/24 上均绿灯 | ⏳ 待仓库有远端后首次触发 |
+| 2 | CI 在 Windows 与 Linux × Node 22/24 上均绿灯 | ✅ 已确认（首次触发即暴露一处环境依赖，2026-09-24 修复后五条运行全绿，见 [`03-engineering.md`](./03-engineering.md) §5） |
 | 3 | `pnpm lint` 为只读校验且退出码可用于 CI | ✅ 已确认（本地通过） |
 | 4 | `pnpm lint:eslint` 与 `pnpm typecheck` 可运行，数字已登记为基线 | ✅ 见 [`baseline/static-analysis.md`](./baseline/static-analysis.md) |
 | 5 | `pnpm test` 通过 L0 冻结面守卫 | ✅ 5 个用例通过 |

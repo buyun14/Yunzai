@@ -368,6 +368,11 @@ pnpm -C $dst lint; pnpm -C $dst lint:eslint; pnpm -C $dst typecheck; pnpm -C $ds
 而不是对最熟悉的那一个。同类风险的排查方向：任何读取被 gitignore 路径的代码
 （`plugins/miao-plugin/**`、`config/**`、`data/**`）在 CI 上都会走另一条分支。
 
+**已在 CI 上复验**：修完推上 `286d823`，四条矩阵腿（ubuntu / windows × node 22 / 24）
+的 `Typecheck` 步全部转绿，整次运行的 conclusion 为 success；四条腿的
+`Format check` / `ESLint` / `Typecheck` / `Test` 逐步均为 success，
+另有 `coverage` job 与 `smoke` workflow 也均为 success。
+
 ---
 
 ## 4. 收紧计划（阶段 3）
