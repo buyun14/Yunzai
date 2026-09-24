@@ -2,6 +2,14 @@ Bot.adapter.push(
   new (class OPQBotAdapter {
     id = "QQ"
     name = "OPQBot"
+    /**
+     * 适配器版本号。
+     *
+     * **本类从来没有写过它**（Milky 那边是 `version = "1.0.0"`），所以它一直是
+     * undefined，连接日志会打出 "undefined 已连接"。这里只声明、不赋值，
+     * 保持既有运行行为不变；补上真实取值属于另一件事。
+     */
+    version
     path = this.name
     echo = new Map()
     timeout = 60000
@@ -89,7 +97,11 @@ Bot.adapter.push(
             await Bot.sendForwardMsg(msg => this.sendMsg(send, upload, msg), i.data)
             continue
           case "raw":
-            for (const i in i.data) message[i] = i.data[i]
+            // 原写法是 `for (const i in i.data) message[i] = i.data[i]`：
+            // 循环变量 i 遮蔽了外层的消息段 i，而循环头里求值的 `i.data` 读的正是
+            // 那个**尚未初始化**的内层绑定——一旦走到这个分支必然抛
+            // `ReferenceError: Cannot access 'i' before initialization`。
+            for (const key in i.data) message[key] = i.data[key]
             continue
           default:
             message.Content += Bot.String(i)

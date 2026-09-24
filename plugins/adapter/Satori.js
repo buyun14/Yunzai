@@ -249,7 +249,8 @@ Bot.adapter.push(
             },
             data.self_id,
           )
-          channelId = channel.id
+          // channel 来自适配器 API，类型上只能当作 unknown
+          channelId = /** @type {any} */ (channel).id
         } catch (err) {
           Bot.makeLog(
             "error",
@@ -473,6 +474,7 @@ Bot.adapter.push(
       return {
         ...i,
         sendMsg: msg => this.sendFriendMsg(i, msg),
+        // @ts-expect-error 本类没有实现 getFriendInfo——真缺陷，见 baseline/static-analysis.md 的 D6
         getInfo: () => this.getFriendInfo(i),
         getAvatarUrl() {
           return this.avatar || `https://api.dicebear.com/7.x/identicon/svg?seed=${user_id}`
@@ -491,6 +493,7 @@ Bot.adapter.push(
       return {
         ...this.pickFriend(data, user_id),
         ...i,
+        // @ts-expect-error 同上：getGroupMemberInfo 也未实现（D6）
         getInfo: () => this.getGroupMemberInfo(i),
       }
     }
@@ -507,7 +510,9 @@ Bot.adapter.push(
         ...i,
         sendMsg: msg => this.sendGroupMsg(i, msg),
         pickMember: user_id => this.pickMember(data, group_id, user_id),
+        // @ts-expect-error 同上：getGroupInfo 也未实现（D6）
         getInfo: () => this.getGroupInfo(i),
+        // @ts-expect-error 同上：getGroupMemberList 也未实现（D6）
         getMemberList: () => this.getGroupMemberList(i),
       }
     }

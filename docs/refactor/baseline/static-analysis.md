@@ -204,6 +204,56 @@ util.makeLog("trace", `不存在 Bot.${prop}`)
 - 记在这里是因为：这条只有靠类型检查（或真的去跑 `pnpm web`）才会暴露，
   而它已经静静地坏了一段时间。
 
+#### D5 · `plugins/adapter/OPQBot.js` · raw 消息分支必然抛 ReferenceError（已修）
+
+```js
+case "raw":
+  for (const i in i.data) message[i] = i.data[i]
+```
+
+循环变量 `i` **遮蔽**了外层的消息段 `i`，而循环头里求值的 `i.data` 读的正是那个
+尚未初始化的内层绑定——走到这个分支必然抛
+`ReferenceError: Cannot access 'i' before initialization`。
+也就是说 OPQBot 发"raw 段"这条路径**从来没成功过**。
+
+- 已修：循环变量改名 `key`。这是本次唯一一处"从崩溃改成能跑"的修改。
+- 触发面窄（OPQBot 且消息里含 raw 段），所以一直没被发现。
+
+#### D6 · `plugins/adapter/Satori.js` · 4 个被调用但从未实现的方法
+
+`pickFriend` / `pickMember` / `pickGroup` 返回的对象里挂了：
+
+```js
+getInfo: () => this.getFriendInfo(i),
+getInfo: () => this.getGroupMemberInfo(i),
+getInfo: () => this.getGroupInfo(i),
+getMemberList: () => this.getGroupMemberList(i),
+```
+
+而 `SatoriAdapter` 里**一个都没有实现**（全仓 grep 只有这 4 处调用点）。
+调用 `friend.getInfo()` 会抛 `TypeError: this.getFriendInfo is not a function`。
+
+- **未修**：补实现需要 Satori 协议的接口知识，属功能开发而不是收紧。
+  本次用 `@ts-expect-error` 标注（并指向本条），好处是将来谁补上了实现，
+  TS 会立刻报"未使用的 @ts-expect-error"，提醒把标注拆掉。
+- 归口**阶段 4（消息与适配器）**：那一阶段本来就要把这些适配器方法
+  整理成统一的能力表——正是发现"某适配器缺哪几个方法"的地方。
+
+#### D7 · `plugins/adapter/OneBotv11.js` · 绑定了不存在的方法
+
+```js
+getChannelArray: this.getGuildChannelArray.bind(this, i),
+getChannelList: this.getGuildChannelList.bind(this, i),   // ← 本类没有这个方法
+getChannelMap: this.getGuildChannelMap.bind(this, i),
+```
+
+本类只有 `getGuildChannelArray` 与 `getGuildChannelMap`（TS 也给了提示
+"Did you mean 'getGuildChannelMap'?"）。`getChannelList()` 一旦被调用即抛 TypeError。
+
+- **未修**：`List` 应该等价于 `Array`、`Map` 的哪一种（还是应该新写一个），
+  得先确认调用方期待什么，属功能决策。
+- 同样用 `@ts-expect-error` 标注，归口阶段 4。
+
 ### 3.4 TS8032：JSDoc「点号名」的语法约束（30 处，已清零）
 
 报错形如：

@@ -11,7 +11,9 @@ Bot.adapter.push(
     catimg = file =>
       new Promise(resolve =>
         spawn("catimg", ["-l0", file], { stdio: "inherit" })
-          .on("error", () => (this.catimg = () => {}))
+          // 失败时把 catimg 换成空实现。返回 resolved Promise 而不是 undefined：
+          // 字段的约定是 `(file) => Promise`，调用方会 await 它。
+          .on("error", () => (this.catimg = () => Promise.resolve()))
           .on("close", resolve),
       )
 

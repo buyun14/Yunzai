@@ -898,6 +898,8 @@ Bot.adapter.push(
           getForwardMsg: this.getForwardMsg.bind(this, i),
           getInfo: this.getGuildInfo.bind(this, i),
           getChannelArray: this.getGuildChannelArray.bind(this, i),
+          // @ts-expect-error 本类只有 getGuildChannelArray / getGuildChannelMap，
+          // 没有 List——真缺陷，见 baseline/static-analysis.md 的 D7
           getChannelList: this.getGuildChannelList.bind(this, i),
           getChannelMap: this.getGuildChannelMap.bind(this, i),
           getMemberArray: this.getGuildMemberArray.bind(this, i),
