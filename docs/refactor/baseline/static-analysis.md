@@ -328,6 +328,46 @@ export default /** @type {Cfg & CfgGroups} */ (new Cfg())
 与 `config/default_config/` 下的文件名一一对应，新增配置文件时要同步加一行。
 配置项本身仍为 `Record<string, any>`：它们来自用户可手改的 YAML，逐项写类型只会腐化。
 
+### 3.6 闸门自身的环境依赖：`#miao` 只在装了 miao-plugin 的机器上能解析（已清零）
+
+这是**推上 GitHub 跑第一次真实 CI 才暴露**的一条：同一个提交，本地 `pnpm typecheck`
+是 0 处，CI 四条矩阵腿**全部挂在 Typecheck 步**。
+
+根因：`lib/plugins/plugin.js`、`lib/plugins/runtime.js`、`plugins/other/version.js`
+里各有一处 `await import("#miao")`，而 `#miao` 映射到 `plugins/miao-plugin/`——
+一个 **gitignore 的第三方插件**。装了它的机器上 TS 能解析到文件；干净克隆与 CI 里
+解析不到，报 TS2307（共 5 处）。于是同一个闸门在两种环境下给出不同结论。
+
+修法：在 `types/globals.d.ts` 里补一条环境声明，只导出本仓自有代码用到的那三个符号：
+
+```ts
+declare module "#miao" {
+  export const App: any
+  export const Common: any
+  export const Version: any
+}
+```
+
+声明为 `any` 是如实的：这批符号来自第三方插件，本仓闸门本来就不检查它
+（`jsconfig.json` 把 `plugins/miao-plugin` 排除在外）。声明之后「模块存在」与
+装没装插件无关，两处都是 0 处。注意 `package.json` 里 `#miao` / `#miao.models`
+的映射是 L0 冻结面，本次只补类型，不动运行期。
+
+复现与验证方式（也可当作以后改闸门的模板）：
+
+```powershell
+# 建一个不含 miao-plugin 的克隆，在里面对比四个闸门
+$dst = "$env:TEMP\yz-gate-check"
+git clone E:\ProjectCollection\2026_9\Work\Yunzai $dst
+pnpm -C $dst i
+pnpm -C $dst lint; pnpm -C $dst lint:eslint; pnpm -C $dst typecheck; pnpm -C $dst test
+```
+
+**教训**：此前那个「干净克隆可一次通过」的验收项，我只在里面跑了 `test`、
+没跑 `typecheck`，于是漏过了这一条。环境无关性必须对**全部**闸门成立，
+而不是对最熟悉的那一个。同类风险的排查方向：任何读取被 gitignore 路径的代码
+（`plugins/miao-plugin/**`、`config/**`、`data/**`）在 CI 上都会走另一条分支。
+
 ---
 
 ## 4. 收紧计划（阶段 3）
