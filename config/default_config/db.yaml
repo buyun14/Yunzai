@@ -1,3 +1,14 @@
+# ⚠️ 已废弃（BCR-0001）：本仓没有任何代码使用这个配置。
+#
+# `sequelize` / `sqlite3` 虽然在 package.json 里声明，但全仓零引用；这个文件被读成
+# `cfg.db` 之后也没有任何消费方。它唯一的作用是让人以为“本仓支持关系型数据库”。
+# 已决策移除，按 docs/refactor/99-compat-and-migration.md 的 BCR-0001 先告警、
+# 发布两个版本后再删。若你的插件正在用 `cfg.db` 或直接 import sequelize，
+# 请在删除前提出——删除与迁移（本文件会移进 config/backups/ 而不是直接删）本来
+# 就是阶段 5 的配置迁移要做的事。
+#
+# 现在改这里也没有任何效果，留着只是为了不让老用户升级时报错。
+
 # Sequelize 配置
 # https://sequelize.org/docs/v6/getting-started
 

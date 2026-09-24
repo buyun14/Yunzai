@@ -3,6 +3,7 @@
   "version": "3.1.3",
   "author": "TimeRainStarSky, Yoimiya-Kokomi, Le-niao",
   "description": "Bot",
+  "//": "sequelize / sqlite3 是死依赖（全仓零引用，占 501 个包），已决策删除。按 docs/refactor/99-compat-and-migration.md 的 BCR-0001 先告警、发布两个版本后再移除；config/default_config/db.yaml 同理。",
   "main": "app.js",
   "type": "module",
   "license": "GPL-3.0",

@@ -106,7 +106,12 @@ initCfg()                    # 补齐缺失的配置文件（现有行为）
 
 对应动作：
 
-- [ ] 对 `sequelize` / `sqlite3` / `db.yaml` 做去留决策（见开放问题 Q1）；
+- [x] 对 `sequelize` / `sqlite3` / `db.yaml` 做去留决策（见开放问题 Q1）
+      —— **已决策（2026-09-24）：删除，但先进告警期。** 因为它是破坏性变更（BCR-0001），
+      声明了这两个依赖的未知第三方插件会直接崩。已落地的告警手段：
+      `lib/config/init.js` 的 `warnDeprecatedDeps()`（启动时打一次，只打一次——
+      放在模块顶层会在单测里被刷屏）、`config/default_config/db.yaml` 的废弃头、
+      `package.json` 的 `"//"` 注记。两个版本后按 BCR-0001 移除。；
 - [ ] 为 redis 键建立前缀规范并写进 `AGENTS.md`，改造 `lib/plugins/loader.js`、`lib/events/connect.js`、`plugins/system/status.js` 中的现有键。
 
 ### 3.4 备份与恢复
