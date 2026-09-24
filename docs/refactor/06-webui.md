@@ -7,8 +7,8 @@
 
 提供运维界面（状态、插件、配置、日志），并让 HTTP API 有稳定契约，供第三方与插件页面消费。
 
-> **状态（2026-09-24）：进行中 —— 安全基座 + v1 只读 API 已落地。**
-> 已完成 §3.3 的四条（含两处偏离）、启动期就绪语义与四个 `GET` 接口；
+> **状态（2026-09-24）：进行中 —— v1 后端已完成。**
+> §3.3 的安全四条（含两处偏离）、启动期就绪语义、五个接口（含 SSE 日志流）均已落地；
 > 契约文件与前端尚未开工。
 > 阶段 5 遗留的「宿主配置 schema 化」（`config/host.schema.js`）与本节 v2 的配置编辑合并做（同一个同构校验器）。
 
@@ -208,6 +208,7 @@
 > | `/api/v1/plugins` | 已加载插件的**执行顺序**（即 `priority` 排序后的）与规则摘要 |
 > | `/api/v1/config` | 文件清单 + 与出厂默认的差异**条数** |
 > | `/api/v1/config?file=x.yaml` | 该文件在用户侧与默认侧的**值**（密钥键已脱敏） |
+> | `/api/v1/logs` | SSE 实时日志流（先回放最近 200 条，之后实时推；每 15 秒一个心跳） |
 >
 > 三个设计决定：
 >
@@ -221,8 +222,39 @@
 > 3. **`?file=` 先过白名单**（`^[\w.-]+\.ya?ml$` 且 `basename` 必须等于原名），
 >    恢复/读取类接口最典型的漏洞就是让请求决定路径。
 >
-> 还有一处**未做**：`api/logs.js`（SSE 日志流）。日志要拿到实时流得给 log4js 挂一个
-> appender（或改成 tail 落盘文件），两条路都有取舍，单独一片做。
+> 还有一处**实测才发现的坑**：响应头必须带 `Cache-Control: no-transform`。
+> 宿主链上有 `compression()`，它会把小于阈值的响应攒在缓冲区里——而 SSE 全是小分片，
+> 不声明就等于"连上了但一条都看不到"。测试里特意把 `compression()` 也接进链路，
+> 少了这个头就会红。
+>
+> ### 日志流为什么用 log4js appender，而不是 tail 落盘文件
+>
+> 落盘文件是现成的（`plugins/other/sendLog.js` 的 `#日志` 就读它），但
+> `appenders.command` 只收 `warn` 与 `mark`——**`info` / `debug` 根本不落盘**（只进 stdout）。
+> 面板上缺的恰恰是"插件加载了哪些"这类 info，所以改成给 log4js **追加一个 appender**，
+> 拿的是与终端同一份日志事件。
+>
+> 代价与约束：
+>
+> - 需要 `log4js.configure()` 再跑一次。配置对象从 `lib/config/log.js` 新增的
+>   `buildLogConfig()` 来，**不是复制一份**——两份副本的后果是"面板上的日志和终端不是一套"；
+> - 只在面板启用时才重配，且**失败不抛**：面板看不到日志可以接受，
+>   "日志系统被面板弄坏"不可以（那时旧配置仍然生效）；
+> - log4js 6 的自定义 appender 必须写成 `type: { configure: () => event => … }`，
+>   **不能直接给函数**——那样它会把 `type` 当模块名去 `require`（实测报 MODULE_NOT_FOUND）；
+> - 三个分类都要挂：一次日志调用只会进一个分类，所以不会重复；
+> - 断开清理靠 `req`/`res` 的 `close`（两个都会发，清理写成幂等）。
+>
+> **样例**（真机取，已去掉 ANSI 颜色）：
+>
+> ```
+> [MARK] (command) [   WebUI  ] WebUI 已挂载：/api/v1（鉴权头：Authorization）
+> [INFO] (message) [ WebSocket] 连接地址：ws://localhost:2536/[GSUIDCore,OPQBot,…]
+> [MARK] (command) [http://127.0.0.1:2536/api/v1/status <= ::ffff:127.0.0.1:3772] HTTP GET 请求 {…
+> ```
+>
+> 分类名是"哪个 logger 发的"（`message` 是 `defaultLogger` 的名字），原样展示不做好看化——
+> 它就是排查时用来定位分类的。
 >
 > **真机验证（2026-09-24，同样临时改配置、验完已还原）**：
 >
@@ -250,6 +282,7 @@
 | 文件 | 改动 |
 |---|---|
 | `lib/bot.js` | 引入 `lib/web/server.js`；**不改** 现有路由与鉴权逻辑 |
+| `lib/config/log.js` | 抽出 `buildLogConfig()`（配置对象的**唯一**来源），供日志流追加 appender |
 | `config/default_config/server.yaml` | 新增 `server.webui.enable`（默认 `false`）、`server.address`；保持既有键不变 |
 
 ---
@@ -267,7 +300,10 @@
       ⚠️ **缺口**：没有直接调用 `lib/bot.js` 里那三个处理器的单测——导入它会撞上
       测试环境的 O6（`logger.defaultLogger`），所以那一条只能靠真跑覆盖
 - [ ] CI 中 `pnpm generate:api` 后 `git diff --exit-code` 通过（契约与代码同步）
-- [ ] 日志 SSE 在客户端断开后服务端正确释放（无句柄泄漏，用连续 100 次连接/断开验证）
+- [x] 日志 SSE 在客户端断开后服务端正确释放（无句柄泄漏，用连续 100 次连接/断开验证）
+      —— 有单测：100 次连接/断开后订阅者始终归零；另一条验证"断开后心跳定时器真的被停掉"
+      （等 16 个心跳周期再断言没有新写入，而不是贴着周期断言：Windows 与 CI runner 的
+      定时器粒度能到 10ms 以上）。真连接断开也走同一条清理路径
 - [x] 启动期（`stat.online !== 2`）访问 `/dashboard` 有明确提示，不出现无限转圈
       —— 503 + `Retry-After` + 自动重试页（有单测）
 - [ ] 敏感接口有 per-IP 限流，压测下返回 429 而非击穿
