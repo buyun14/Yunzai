@@ -1,4 +1,5 @@
 import cfg from "../../lib/config/config.js"
+import { cacheKey } from "../../lib/config/redis-keys.js"
 
 export class disPri extends plugin {
   constructor() {
@@ -48,7 +49,7 @@ export class disPri extends plugin {
     if (this.e.user_id == this.e.self_id) return
 
     /** cd */
-    const key = `Yz:disablePrivate:${this.e.user_id}`
+    const key = cacheKey("disablePrivate", this.e.user_id)
     if (await redis.get(key)) return
 
     this.e.reply(cfg.other.disableMsg)

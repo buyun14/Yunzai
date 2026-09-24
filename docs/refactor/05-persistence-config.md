@@ -160,7 +160,40 @@ initCfg()                    # 补齐缺失的配置文件（现有行为）
       `lib/config/init.js` 的 `warnDeprecatedDeps()`（启动时打一次，只打一次——
       放在模块顶层会在单测里被刷屏）、`config/default_config/db.yaml` 的废弃头、
       `package.json` 的 `"//"` 注记。两个版本后按 BCR-0001 移除。；
-- [ ] 为 redis 键建立前缀规范并写进 `AGENTS.md`，改造 `lib/plugins/loader.js`、`lib/events/connect.js`、`plugins/system/status.js` 中的现有键。
+- [x] 为 redis 键建立前缀规范并写进 `AGENTS.md`，改造 `lib/plugins/loader.js`、`lib/events/connect.js`、`plugins/system/status.js` 中的现有键。
+      —— 已落地，实际改的不只这三个文件，见下方落地说明。
+
+> **落地情况（2026-09-24）：§3.3 已实现。**
+>
+> `lib/config/redis-keys.js` 是唯一的拼接入口，两类前缀：
+>
+> | 前缀 | 含义 | 可不可以清 |
+> |---|---|---|
+> | `Yz:cache:` | 过期即失效，或能由原始数据重建 | **可以**，清了不丢东西 |
+> | `Yz:persist:` | 累计计数与统计 | **不可以**，清了就是丢数据 |
+>
+> **两层偏差，都有理由：**
+>
+> 1. 类别用的是 `cache:` 而不是本表举例的 `throttle:`。按实际用到的键看，
+>    "可随时清"那一类里除了冷却/去重，还有**上下文键**（`#添加` 记住用户选了哪个群）
+>    与各种标记，它们不是节流。用 `cache:` 描述"可重建"更准。
+> 2. 外层保留了既有的 `Yz:`，类别只作**第二段**。这样新旧键在
+>    `redis-cli KEYS 'Yz:*'` 里仍属同一族，迁移期能同时观察两代键。
+>
+> 实际改到 7 处（不止上面三个）：`lib/events/connect.js`（`loginMsg`）、
+> `lib/plugins/loader.js` + `plugins/system/status.js`（`count`，**读写两端必须同时改**）、
+> `plugins/system/add.js`、`plugins/system/disablePrivate.js`、
+> `plugins/other/restart.js`、`plugins/example/进群退群通知.js`。
+>
+> **为什么要有守卫测试**：这类改造最典型的失败是**只改一半**（写端改了前缀、读端忘了），
+> 而后果是静默的——`status.js` 读不到东西时返回 0，不报错。所以
+> `tests/unit/config/redis-keys.test.js` 里有一条扫描：`lib/` 与内置插件目录下
+> **不许再出现形如 `` `Yz:...` `` 的键字面量**（`plugins/miao-plugin` 除外，
+> 它是第三方，有自己的 `miao:` 命名空间），另有一条断言 `count` 的读写两端
+> 都用了 `persistKey("count", ...)`。
+>
+> **旧键按 Q4 不迁移**：让它们自然过期。唯一的实际代价是 `persist:count:` ——
+> 计数是累计值，改名等于从零开始。
 
 ### 3.4 备份与恢复
 

@@ -1,4 +1,5 @@
 import cfg from "../../lib/config/config.js"
+import { cacheKey } from "../../lib/config/redis-keys.js"
 import PluginsLoader from "../../lib/plugins/loader.js"
 
 const temp = {}
@@ -54,7 +55,7 @@ export class Restart extends plugin {
     })
     if (e) this.e = e
   }
-  key = "Yz:restart"
+  key = cacheKey("restart")
 
   init() {
     Bot.once("online", this.restartMsg.bind(this))

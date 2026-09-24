@@ -1,4 +1,5 @@
 import cfg from "../../lib/config/config.js"
+import { cacheKey } from "../../lib/config/redis-keys.js"
 import fs from "node:fs/promises"
 import path from "node:path"
 import lodash from "lodash"
@@ -42,7 +43,7 @@ export class add extends plugin {
 
   /** 群号key */
   get grpKey() {
-    return `Yz:group_id:${this.e.user_id}`
+    return cacheKey("group_id", this.e.user_id)
   }
 
   /** #添加 */

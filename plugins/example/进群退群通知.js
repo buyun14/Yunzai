@@ -1,3 +1,5 @@
+import { cacheKey } from "../../lib/config/redis-keys.js"
+
 export class newcomer extends plugin {
   constructor() {
     super({
@@ -20,7 +22,7 @@ export class newcomer extends plugin {
     let cd = this.cfg.cooldown
 
     /** cd */
-    let key = `Yz:newcomers:${this.e.group_id}`
+    let key = cacheKey("newcomers", this.e.group_id)
     if (await redis.get(key)) return
     redis.set(key, "1", { EX: cd })
 

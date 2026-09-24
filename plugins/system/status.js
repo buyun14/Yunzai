@@ -1,4 +1,5 @@
 import cfg from "../../lib/config/config.js"
+import { persistKey } from "../../lib/config/redis-keys.js"
 import PluginsLoader from "../../lib/plugins/loader.js"
 import moment from "moment"
 
@@ -142,7 +143,9 @@ export class status extends plugin {
   async redis(type, key) {
     const ret = {}
     for (const i of ["receive", "send"]) {
-      const k = `Yz:count:${i}${key}`
+      // 与 loader.js 的写入端必须逐字对齐（前缀改了之后也要一致），
+      // 否则这里会静默报 0——本函数读不到东西时就是回 0，不会报错
+      const k = `${persistKey("count", i)}${key}`
       if (type == "keys") ret[i] = (await this.redisKeysLength(k)) || 0
       else ret[i] = (await redis.get(k)) || 0
     }
