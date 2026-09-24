@@ -33,6 +33,32 @@ switch (process.env.app_type || process.argv[2]) {
     global.start_type = "internal"
 }
 global.Bot = new (await import("./lib/bot.js")).default()
+
+/**
+ * 配置迁移（阶段 5 §3.1）。
+ *
+ * 位置是刻意的：`lib/bot.js` 导入 `lib/config/config.js` 时已经跑过 `initCfg()`
+ * （把 `default_config/` 里缺的文件补进 `config/config/`），而插件要等 `Bot.run()`
+ * 才加载。夹在中间，迁完就能被配置读取与插件看到。
+ *
+ * 失败即 `process.exit(1)`：`migrate.js` 已经把“备份在哪、怎么退回去”写进错误消息了，
+ * 这里只负责如实打印并停住——半迁移状态继续启动，比开不起来危险得多。
+ * 已是最新时 `runMigrations()` 什么都不做（不备份不写文件），所以每次启动都调是安全的。
+ */
+try {
+  const { runMigrations } = await import("./lib/config/migrate.js")
+  const { from, to, applied, backup } = await runMigrations()
+
+  if (applied.length) {
+    logger.mark(`配置已从 v${from} 迁移到 v${to}，共 ${applied.length} 个脚本`)
+    for (const item of applied) logger.mark(`  · ${item}`)
+    logger.mark(`迁移前备份：${backup}`)
+  }
+} catch (err) {
+  logger.error(err instanceof Error ? err.message : String(err))
+  process.exit(1)
+}
+
 Bot.run()
 
 // 仅为一件事而存在：本文件用了顶层 await，但自身没有任何 import / export，
