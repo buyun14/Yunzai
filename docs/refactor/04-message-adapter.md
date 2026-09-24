@@ -126,6 +126,25 @@ em(name = "", data = {}) {
 > 同时按本阶段的验收要求把 `group-unsupported-segments.json` 扩到了
 > `record` / `video` / `forward` / `poke` 四段，并新增一条影子场景专门盯它。
 
+> **真机浸泡（2026-09-24，SnowLuma v1.14.19 + OneBot v11）：通过。**
+>
+> 群聊与私聊各跑一遍 `#帮助`，都是完整路径：`开始处理 → 图片生成（miao-plugin/help/index）
+> → 发送群/好友消息 → 完成`。群聊耗时 1.485s（首次出图 645ms）、私聊 605ms，
+> 全程 `[ERRO]` 0 条。
+>
+> 这一轮实际压到的东西：`parseComponents()` 对真实 OneBot v11 载荷（`text` + 段数组）、
+> `applyLegacyFields()` 派生的 `e.msg` 能被 miao-plugin 的正则命中、`umoOf()` 在真实事件上
+> 不抛错、限流键迁移后照常工作（同群的第二条、以及私聊的同文都正常处理，没有被误挡）、
+> 以及 `RateLimitCommitStage` 与 `RateLimitCheckStage` 用的是同一个 `umo` 键
+> （两次都走完了 `[完成…]`，说明检查阶段没有因为键不一致而误拦）。
+>
+> ⚠️ 但要说清楚**没有**压到的：1 秒同文去重、单人冷却、群冷却的**真实**触发都没构造出来
+> （两次群聊相隔 41 秒，冷却早就过期了），那几条只有单测覆盖。
+>
+> ⚠️ 仍未覆盖：非 OneBotv11 适配器的真实载荷（Milky / Satori / OPQBot 等），
+> 以及 `record` / `video` / `forward` 的**真实**上行（fixture 里只有构造值）。
+> 因此阶段 2 第 5 步（删旧路径）的前置条件只能算**部分**满足。
+
 ### 3.3 会话唯一键 `umo`
 
 格式：

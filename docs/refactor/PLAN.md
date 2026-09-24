@@ -174,7 +174,8 @@ flowchart TD
 - [x] 阶段 3：工程化（覆盖率 95.22% + `smoke.yml` + ESLint 0/0 与 typecheck 0 处均已入 CI 并阻塞；
       首次真实 CI 曾四条矩阵腿全挂在 typecheck，根因是 `#miao` 的环境依赖，
       修完后四条腿全绿，见 `03-engineering.md` §3.6/§5）
-- [x] 阶段 4：消息与适配器（v1 统一组件模型、v2 `umo` 会话键、v3 适配器注册表与能力表，见 `04-message-adapter.md`）
+- [x] 阶段 4：消息与适配器（v1 统一组件模型、v2 `umo` 会话键、v3 适配器注册表与能力表，见 `04-message-adapter.md`；
+      已在真机上浸泡过群聊与私聊路径，`[ERRO]` 0 条）
 - [ ] 阶段 5：持久化与配置（**进行中**——§3.1 的配置版本化 / 幂等迁移 / 迁移前备份已落地，
       Q1 的死依赖已定为「先告警、两版后删」；剩第二条真实迁移、`config:diff`、
       `backup` / `restore` CLI、redis 键前缀规范，以及 `umo` 的剩余落点）
