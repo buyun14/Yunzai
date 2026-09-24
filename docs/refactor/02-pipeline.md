@@ -11,7 +11,7 @@
 
 1. 新增横切策略只需新增一个 Stage 文件，不改核心；
 2. 阶段之间的顺序在一处集中声明并可自检（漏注册立即报错，而不是静默失效）；
-3. `setLimit` 这类"处理完成后才执行"的逻辑，天然落在洋葱模型的后置钩子上；
+3. `setLimit` 这类“处理完成后才执行”的逻辑有了明确的位置（见 §3.1：它必须拆成独立阶段，而不是靠行序）；
 4. 多账号/多配置档案各自拥有独立的阶段实例（限流计数、冷却表不再互相污染）。
 
 ---
@@ -83,17 +83,17 @@ flowchart LR
   H --> I["Process<br/>accept + rule 匹配"] --> J["Respond<br/>发送"]
 ```
 
-| # | Stage | 对应 `deal()` 步骤 | 是否洋葱（是否 `yield`） |
-|---|---|---|---|
-| 1 | `StatisticsStage` | 1 | **是**（前钩记接收，后钩记耗时） |
-| 2 | `WhitelistCheckStage` | 2 | 否 |
-| 3 | `ProfileResolveStage` | 3 | 否 |
-| 4 | `RateLimitCheckStage` | 4 | 否 |
-| 5 | `NormalizeStage` | 5 | 否 |
-| 6 | `RateLimitCommitStage` | 6 | 否 |
-| 7 | `PreProcessStage` | 7、8 | 否 |
-| 8 | `WakeupGateStage` | 9、10、11 | 否 |
-| 9 | `ProcessStage` | 12、13、14 | 否（终止段） |
+| # | Stage | 对应 `deal()` 步骤 |
+|---|---|---|
+| 1 | `StatisticsStage` | 1（耗时由 EventBus 在 `execute()` 外包一层测） |
+| 2 | `WhitelistCheckStage` | 2 |
+| 3 | `ProfileResolveStage` | 3 |
+| 4 | `RateLimitCheckStage` | 4 |
+| 5 | `NormalizeStage` | 5 |
+| 6 | `RateLimitCommitStage` | 6 |
+| 7 | `PreProcessStage` | 7、8 |
+| 8 | `WakeupGateStage` | 9、10、11 |
+| 9 | `ProcessStage` | 12、13、14 |
 | 10 | `RespondStage` | 7 的发送部分 | 否（终止段） |
 
 ### 3.1 为什么限流被拆成两个 Stage
@@ -105,17 +105,33 @@ flowchart LR
 
 因此 `RateLimitCheck`（第 4 步）与 `RateLimitCommit`（第 6 步）之间必须夹着 `NormalizeStage`，**不能**用洋葱模型表达。
 
-### 3.2 洋葱机制在 v1 中的定位
+### 3.2 没有洋葱模型（刻意）
 
-v1 只有 `StatisticsStage` 使用洋葱。该机制的价值不在当下而在后续：
+阶段一律是顺序执行、返回 Promise 的普通函数。**不实现洋葱模型**，三条理由：
 
-- 发送后的定时撤回与消息记录清理（`RespondStage` 之后）；
-- 处理耗时落库、异常兜底上报；
-- 阶段 4 若引入 LLM 流式输出，需要包住下游才能做流式聚合。
+| # | 理由 |
+|---|---|
+| 1 | **在 Yunzai 里零消费者**。原计划只有 `StatisticsStage` 用它做耗时统计，而“整条流水线跑了多久”是**调度器**职责——`EventBus` 包住 `execute()` 就能测，不该由流水线内部承担 |
+| 2 | **参考实现已废弃该设计**。AstrBot RFC [#1948](https://github.com/AstrBotDevs/AstrBot/issues/1948) 把 pipeline 重构为 chain/workflow，明确写着「此次重构将替代现有的洋葱模型，所有基于该模型的功能模块均需重写」；其更新说明是「实际落地为 chain 架构，简化了原有执行模型」——有序链正是本设计当前的形式 |
+| 3 | **该机制自带坑**。参考实现的洋葱分支在 `async for` 结束后，外层 `for` 会继续到 `i + 1`，导致洋葱阶段下游的所有阶段被**执行第二遍**（其 `content_safety_check/stage.py` 在内容拦截路径上就会触发）。对 Yunzai 而言这等于“同一条消息里插件被执行两次” |
 
-实现成本很低（一个判别函数加一段递归），因此骨架阶段就一并落地，但**不为了用而用**：任何不满足「需要包住下游」的阶段都应写成普通 `async process()`。
+关于第 2 条需要说清楚：**“采纳 #1948 的设计”与“实现洋葱模型”是矛盾的**。
+该 RFC 的落地形态就是“有序链 + 节点”，并不包含洋葱；完整 workflow 引擎（条件边、会话变量、会话锁）属于其 v5.x milestone，
+PR #4960 至今仍为 `[WIP]`，且其自列的已知问题包括“内置命令系统需要重新设计”“WebUI 需重构”。
+对 Yunzai 而言那等同于重写插件生态，直接违反 [`PLAN.md`](./PLAN.md) 的非目标与 ADR-003。
 
-### 3.3 未纳入的阶段
+### 3.3 为将来预留的扩展点
+
+如果将来确实需要「条件边 / 会话变量 / 会话锁」这类图状编排：
+
+- **Stage 仍是行为的唯一单元**，插件契约（`rule` / `handler` / `accept`）不需要改动；
+- **顺序决策只存在于两处**——`stage-order.js` 的声明与 `scheduler.js` 的 `processStages`，换引擎只动这两个文件；
+- **会话变量已有雏形**：`ctx.stateOf(event)` 就是每事件的键值状态；
+- **会话隔离已具备**：`PipelineContext` 按配置档案隔离（每档案一组阶段实例），`EventBus` 的串行队列等价于“会话锁”。
+
+但**现在不做**：Yunzai 当前的痛点是“横切策略硬编码在 `deal()` 里”与“插件靠 priority 魔数调度”，固定有序链已经解决；引入图状引擎属于提前抽象。
+
+### 3.4 未纳入的阶段
 
 AstrBot 有 `ResultDecorateStage`（统一加回复前缀、`t2i`、TTS）。Yunzai 现状没有等价需求（此类装饰分散在各插件里），因此**不新增空实现**。若后续需要统一装饰，它在 `ProcessStage` 与 `RespondStage` 之间即可插入，不改动其他 Stage。
 
@@ -129,7 +145,7 @@ AstrBot 有 `ResultDecorateStage`（统一加回复前缀、`t2i`、TTS）。Yun
 |---|---|---|
 | `lib/pipeline/stage.js` | `Stage` 基类、`registerStage()`、`registeredStages` 注册表 | `pipeline/stage.py` |
 | `lib/pipeline/stage-order.js` | `STAGES_ORDER` 常量 + `assertStageCoverage()` | `pipeline/stage_order.py` |
-| `lib/pipeline/scheduler.js` | 按序实例化、洋葱递归、停止传播 | `pipeline/scheduler.py` |
+| `lib/pipeline/scheduler.js` | 按序实例化、顺序执行、停止传播 | `pipeline/scheduler.py`（**仅参考顺序声明，不采纳其洋葱机制**，见 §3.2） |
 | `lib/pipeline/context.js` | `PipelineContext`（配置档案、插件注册表、存储、日志） | `pipeline/context.py` |
 | `lib/pipeline/bootstrap.js` | 显式 `import` 内置 stage 并校验覆盖完整 | `pipeline/bootstrap.py` |
 | `lib/pipeline/stages/*.js` | 上表 8 个 Stage 实现 | `pipeline/*/stage.py` |
@@ -145,53 +161,35 @@ AstrBot 有 `ResultDecorateStage`（统一加回复前缀、`t2i`、TTS）。Yun
 
 ---
 
-## 5. 洋葱模型：JS 精确实现
+## 5. 调度器实现
 
-AstrBot 的核心机制是：`Stage.process()` 返回**普通协程**或**异步生成器**，调度器据此判断该 Stage 是否包住下游。JS 可以 1:1 复刻。
-
-### 5.1 约定
-
-| 写法 | 返回 | 语义 |
-|---|---|---|
-| `async process(event) { … }` | `Promise` | 普通阶段，执行完继续下一段 |
-| `async *process(event) { …; yield; … }` | `AsyncGenerator` | **洋葱阶段**，`yield` 之后的内容在所有下游阶段跑完后执行 |
-
-关键点：`async *process()` 是生成器函数，调用时**不执行函数体**，直接返回 `AsyncGenerator`；`async process()` 调用时返回已被调度的 `Promise`。两者在语法层面就可判别。
-
-### 5.2 调度器骨架
+### 5.1 只有一种阶段：顺序执行的 Promise
 
 ```js
 // lib/pipeline/scheduler.js
-function isAsyncIterable(v) {
-  return !!v && typeof v[Symbol.asyncIterator] === "function"
-}
-
-async function processStages(ctx, event, from = 0) {
+export async function processStages(ctx, event, from = 0) {
   for (let i = from; i < ctx.stages.length; i++) {
     const stage = ctx.stages[i]
-    const ret = stage.process(event) // 注意：不能先 await
+    const produced = stage.process(event)
 
-    if (isAsyncIterable(ret)) {
-      for await (const _ of ret) {
-        if (ctx.isStopped(event)) break
-        await processStages(ctx, event, i + 1)
-        if (ctx.isStopped(event)) break
-      }
-    } else {
-      await ret
-      if (ctx.isStopped(event)) break
-    }
+    // 误用已废弃的洋葱写法时直接抛错，而不是静默什么都不做
+    if (isAsyncGenerator(produced))
+      throw new Error(`${stage.constructor.name}.process() 返回了异步生成器…`)
+
+    await produced
+    if (ctx.isStopped(event)) break
   }
 }
 ```
 
-**易错点（必须在文档与代码注释中标注）**：
+**为什么保留那个判别**：`await` 一个异步生成器**不会**执行它的函数体，只会拿到生成器对象。
+如果没有这个检查，一个照抄旧文档写成 `async *process()` 的阶段会表现为“什么都没做”，排查成本极高。
+把它变成显式错误只需要三行，且已有单测覆盖。
 
-- 不能写 `const ret = await stage.process(event)`——`await` 会把 `AsyncGenerator` 与 `Promise` 的差别抹掉，洋葱模型立即失效；
-- `for await (const _ of ret)` 的循环次数等于该阶段 `yield` 的次数；写成"多个 `yield`"会导致下游被执行多次；
-- 阶段实例必须**有状态地复用**（`initialize()` 只调一次），否则限流计数、缓存等状态会每消息丢失。
+**易错点**：阶段实例必须**有状态地复用**（`initialize()` 只在启动时调一次），
+否则限流计数、缓存等状态会每消息丢失。
 
-### 5.3 中断传播
+### 5.2 中断传播
 
 `ctx.isStopped(event)` 统一判断是否停止。语义对应现状的 `return`：
 
@@ -234,13 +232,24 @@ flowchart LR
 5. **清理**：删除旧路径与开关，补 Stage 的集成测试。
 
 > 第 3 步是整个阶段最关键的保障：它把"重构不改变行为"从信念变成可观测的对比结果。
+### 7.1 进度
 
+| 步 | 内容 | 状态 |
+|---|---|---|
+| 0 | 手工事件 fixture + 假适配器夹具（阶段 0 遗留的前置任务） | ⬜ 未开始 |
+| 1 | 骨架落地（不接线）：`stage.js` / `stage-order.js` / `context.js` / `scheduler.js` | ✅ 已完成 |
+| 2 | 等价 Stage 实现（10 个） | ⬜ 未开始 |
+| 3 | 影子运行对比 | ⬜ 未开始 |
+| 4 | 切换（`deal()` 改为入队） | ⬜ 未开始 |
+| 5 | 清理旧路径 | ⬜ 未开始 |
+
+第 1 步落地时的实测结果：`pnpm test` 90 个用例全通；ESLint 与类型检查相对基线**无新增**。
 ---
 
 ## 8. 验收标准
 
-- [ ] `assertStageCoverage()` 在漏注册/多注册时抛错，并有单测覆盖
-- [ ] 调度器的洋葱语义有专门单测：给定三段（普通、洋葱、普通），断言执行顺序为 `pre1 → pre2 → pre3 → post2`
+- [x] 调度器单测：严格按 `STAGES_ORDER` 执行且每阶段恰好一次；`from` 参数；空列表；返回异步生成器时显式报错
+- [x] `assertStageCoverage` 在漏注册/多注册/重复注册时抛错，均有单测覆盖
 - [ ] `RateLimitCheckStage` / `RateLimitCommitStage` 单测覆盖：群冷却、单人冷却、1 秒同文去重、`only_reply_at` 为假时不提交冷却
 - [ ] §2.2 的三处位置敏感约束均有注释标注，且有专门的顺序回归测试
 - [ ] 阶段 0 录制的全部事件样本，在新流水线下的**决策序列**与旧 `deal()` 完全一致
@@ -254,7 +263,7 @@ flowchart LR
 
 | 风险 | 概率 | 影响 | 对策 |
 |---|---|---|---|
-| 洋葱模型被误用（`await` 抹平差别） | 中 | 高 | 骨架中加断言 + 专门单测；`processStages` 处写显式注释 |
+| 照旧文档写成 `async *process()`（已废弃的洋葱写法） | 中 | 低 | 调度器判别后**直接抛错**，不会静默失败；`stage.js` 与 `scheduler.js` 顶部都写明该设计已被否决，并有单测覆盖 |
 | 阶段实例被意外重建，状态丢失 | 中 | 高 | `initialize()` 只在启动时调用；单测断言实例身份在多次事件间保持 |
 | 行为出现细微差异且难以定位 | 中 | 高 | 影子运行阶段（第 7 节第 3 步）逐决策点对比 |
 | 旧插件直接调用 `PluginsLoader.deal()` | 低 | 中 | 保留 `deal()` 作为兼容入口，内部转发到流水线 |

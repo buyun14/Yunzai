@@ -36,7 +36,7 @@
 
 | AstrBot 文件 | 借鉴点 |
 |---|---|
-| `core/agent/runners/base.py` | `AgentState` 的 `step()` / `step_until_done()` **异步生成器**形态。与阶段 2 的洋葱模型同一套语言特性，Node 侧可直接对应 |
+| `core/agent/runners/base.py` | `AgentState` 的 `step()` / `step_until_done()` 用异步生成器表达“一步一产出”的循环。这是**生成器本身的用法**，与已被否决的流水线洋葱模型无关（见 `02-pipeline.md` §3.2）；Node 侧可直接对应 |
 | `core/agent/runners/tool_loop_agent_runner.py` | 工具循环的参考实现 |
 | `core/agent/tool.py` | `FunctionTool` / `ToolSet`：工具的 schema 与执行分离 |
 | `core/agent/tool_executor.py` | 执行期统一处理超时、异常、结果序列化 |

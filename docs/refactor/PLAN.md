@@ -19,7 +19,7 @@
 |---|---|---|
 | [`00-prep.md`](./00-prep.md) | 前期准备：仓库、分支、工具链、CI 骨架 | 阶段 0 |
 | [`01-plugin-contract.md`](./01-plugin-contract.md) | 插件契约：元数据、配置 schema、能力声明 | 阶段 1 |
-| [`02-pipeline.md`](./02-pipeline.md) | 消息流水线：Stage 洋葱模型、事件总线、上下文 | 阶段 2 |
+| [`02-pipeline.md`](./02-pipeline.md) | 消息流水线：Stage 有序链、事件总线、上下文 | 阶段 2 |
 | [`03-engineering.md`](./03-engineering.md) | 工程化：CI、测试、类型检查、提交规范 | 阶段 3 |
 | [`04-message-adapter.md`](./04-message-adapter.md) | 统一消息组件、适配器抽象、会话唯一键 | 阶段 4 |
 | [`05-persistence-config.md`](./05-persistence-config.md) | 持久化迁移策略、配置版本化、备份 | 阶段 5 |
@@ -112,7 +112,7 @@ flowchart TD
 |---|---|---|---|---|---|
 | 0 | 前期准备 | `00-prep.md` | 仓库基线、分支模型、lint/format 闸门、CI 骨架、`AGENTS.md` | CI 绿灯；`pnpm lint` 为只读校验 | ✅ 完成（1 项延期） |
 | 1 | 插件契约 | `01-plugin-contract.md` | `plugin.json` 元数据、`config.schema.json`、权限/平台/版本声明、旧基类自动合成 | 3 个内置插件完成迁移且行为不变 | ✅ 完成 |
-| 2 | 流水线 | `02-pipeline.md` | `Stage` 洋葱模型、`Scheduler`、`EventBus`、`PipelineContext` | `deal()` 各步骤全部下沉为 Stage，旧插件无感 | ⏭️ 下一个 |
+| 2 | 流水线 | `02-pipeline.md` | `Stage` 有序链 + `Scheduler` + `PipelineContext` + `EventBus` | `deal()` 各步骤全部下沉为 Stage，旧插件无感 | 🚧 骨架完成，待实现 10 个 Stage |
 | 3 | 工程化 | `03-engineering.md` | vitest 单测、`checkJs`、ESLint、husky + commitlint、覆盖率 | 核心模块覆盖率 ≥ 60% | 未开始 |
 | 4 | 消息与适配器 | `04-message-adapter.md` | `Component` 抽象、适配器注册表与能力表、会话唯一键 `umo` | Milky/Satori 走同一组件路径 | 未开始 |
 | 5 | 持久化与配置 | `05-persistence-config.md` | 幂等迁移、`config_version`、结构化备份导出 | 老配置/老库可自动升级并可回滚 | 未开始 |
@@ -159,6 +159,7 @@ flowchart TD
 | ADR-005 | 语言与运行时 | — | 保持 Node ESM，不引入构建步骤到运行路径（与上游一致） |
 | ADR-006 | 锁文件策略 | 跟踪 `pnpm-lock.yaml` / 保持忽略 | **保持忽略**，改为把 `devDependencies` 写成精确版本。理由：`pnpm-workspace.yaml` 的 `packages` 含 `plugins/**`，用户增删插件会持续改动锁文件；跟踪它会让每个用户的仓库始终处于 dirty 状态。代价是运行时依赖的 `^` 范围不固定，需要时再用 `pnpm.overrides` 逐个锁定 |
 | ADR-007 | CI 冒烟测试时机 | 阶段 0 做启动冒烟 / 推迟 | **推迟到阶段 2**。阶段 0 无可行的启动方式：`Bot.run()` 会拉起 redis、初始化 puppeteer、等待适配器上线，CI 中无真实账号会挂起；且没有适配器在线时插件栈不会被加载。阶段 2 的假适配器 + fake 事件夹具就位后再做 |
+| ADR-008 | 洋葱模型与 workflow 引擎 | 实现洋葱 / 采纳 AstrBot RFC #1948 的 workflow 引擎 / 两者都不做 | **两者都不做，只保留有序链**。① 洋葱在 Yunzai 里零消费者（原计划只有 `StatisticsStage` 计时，而那是调度器职责）；② 参考实现自己正用 chain 架构**替代**洋葱模型（[#1948](https://github.com/AstrBotDevs/AstrBot/issues/1948)），其完整 workflow 引擎属 v5.x milestone 且 PR 仍为 WIP，自列已知问题包括“内置命令重新设计”“WebUI 重构”——对 Yunzai 等于重写插件生态；③ 参考实现的洋葱调度器会让下游执行两遍。扩展点保留：Stage 是行为唯一单元，顺序决策只在 `stage-order.js` 与 `scheduler.js` 两处 |
 
 ---
 
