@@ -229,3 +229,61 @@ WebUI 的前端中间件（`lib/web/server.js` 的 `mountFrontend`）最终是**
 - **别用 DOM 行数当"导出条数"的期望值**：日志视口是限高滚动的，DOM 里只有几十个
   `.log-line`，而"导出过滤结果全量"是几百行。断言要写成 `导出条数 ≥ DOM 行数`。
 
+## 14. 填上 `server.auth` 会让**所有适配器连不上**（曾有内核 bug，已修）
+
+### 症状
+
+```
+[ERRO][ws://127.0.0.1:2536/OneBotv11 <≠ ::ffff:127.0.0.1:36827-…] HTTP GET 请求
+      Authorization 鉴权失败 { headers: { upgrade: 'websocket', 'x-self-id': …, … } }
+```
+
+### 两个叠加的原因
+
+**① `serverAuth` 是站点级的。** 空 `auth` 时它直接放行（`if (!cfg.server.auth …)
+return req.next?.()`），一填上就**所有路径**都要令牌——包括适配器回连的
+`/OneBotv11`。所以"只是想开个面板"与"给 HTTP 服务加门禁"是同一件事；面板要求
+非空 `auth` 才挂载，因此绕不开，启用前要想清楚。
+
+**② 框架本来就支持用查询参数带令牌，但 `wsConnect` 把它堵死了**（已修）。
+
+`serverAuth` 明确支持 `req.query[i] === cfg.server.auth[i]`，`wsConnect` 也确实先把
+查询串解析好放进 `req.query`。但取适配器名时用的是：
+
+```js
+const path = req.url.split("/")[1]   // 修复前
+```
+
+`req.url` **带查询串**，于是 `/OneBotv11?Authorization=xxx` 解析成
+`OneBotv11?Authorization=xxx`，`path in this.wsf` 判定失败 → **404**。
+
+⚠️ 隐蔽之处在于**鉴权其实是过了的**：客户端只看到握手失败，而 404 与 401 在客户端
+眼里都是"连不上"；服务端那边也只是一句不太起眼的「WebSocket 处理器 … 不存在」。
+真实后果是 **`server.auth` 一填，所有 OneBot 适配器集体断开**，而框架文档里
+"用 URL 带令牌"这条路正好被堵死。
+
+修法：先按 `?` 切分（`lib/bot.js` 的 `wsConnect`）。
+
+### 怎么验证
+
+```bash
+pnpm e2e:ws --token <server.auth 里的值>     # 需要宿主已在跑
+```
+
+四次握手，关键的一条是"带对了令牌必须升到 **101**"——只看 401/404 分不清
+"令牌不对"与"适配器名解析错"，而这正是当初漏掉它的原因。
+
+`tests/unit/web/ws-adapter-path.test.js` 也钉住了那行解析规则，但它是**复刻**的，
+解析写错也照样通过，所以真机那条不能省。
+
+### SnowLuma 侧的配置
+
+反向 WS 地址要带令牌，**参数名与 `server.auth` 的键名完全一致**（大小写敏感）：
+
+```
+ws://127.0.0.1:2536/OneBotv11?Authorization=<令牌>
+```
+
+代价：令牌会进访问日志（每次连上都记一次）。要避免就用请求头方式——但 OneBot
+标准实现只会发它自己那几个头，加不了自定义头，所以实际只能用查询参数。
+

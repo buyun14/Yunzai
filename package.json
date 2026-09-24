@@ -25,6 +25,7 @@
     "lint:eslint": "eslint .",
     "typecheck": "node scripts/typecheck.mjs",
     "smoke": "node scripts/smoke.mjs",
+    "e2e:ws": "node scripts/e2e-ws-auth.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
