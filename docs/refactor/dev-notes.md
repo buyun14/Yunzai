@@ -110,3 +110,18 @@ pnpm -C $dst lint; pnpm -C $dst lint:eslint; pnpm -C $dst typecheck; pnpm -C $ds
 
 反向也成立：**发现文档与代码不一致时，先修文档**。一份过时的进度表会让下一个人
 （或下一次会话）基于错误前提做决策。
+
+## 9. `cfg.<名字>` 是**文件**，不是嵌套键
+
+`lib/config/config.js` 的 Proxy 把 `cfg.X` 映射到 `config/config/X.yaml` 与
+`config/default_config/X.yaml`（浅合并，用户优先）。因此：
+
+- 新增配置项要么放进**已有的** yaml（如 `server.webui.enable` → `config/config/server.yaml`），
+  要么新建一个**同名**的 yaml 文件；
+- 写 `cfg.webui.enable` 而只在 `server.yaml` 里放了 `webui:` 段，会去找不存在的
+  `webui.yaml`，读到 `undefined` —— **静默失效，没有任何报错**（阶段 6 的 WebUI 开关
+  头一版就是这么写的，真跑才看出来）；
+- 浅合并的后果：用户在 `config/config/server.yaml` 里写了 `webui:` 段，
+  就会**整体覆盖**默认的那个对象，不会逐键合并。新增子键时必须把这一点写进注释；
+- 还有一个坑：**裸 node 脚本里读 `cfg` 会在解析失败时炸** —— `getYaml` 的 catch 里用了
+  全局 `Bot.makeLog`。想单独看配置就写最小脚本 + 直接 `YAML.parse`，或者干脆真启动一次。

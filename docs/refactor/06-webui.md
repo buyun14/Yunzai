@@ -91,9 +91,9 @@
 > |---|---|
 > | `lib/web/security.js` | per-IP 令牌桶限流、请求体上限、缺 `Content-Length` 的 multipart → 411 |
 > | `lib/web/server.js` | 挂载门卫（`WebUI.mount`）、早期探针（`earlyProbe`）、`/api/v1/ready` |
-> | `config/default_config/server.yaml` | 新增 `webui.enable`（默认 `false`）与 `address` |
+> | `config/default_config/server.yaml` | 新增 `server.webui.enable`（默认 `false`）与 `server.address` |
 >
-> 设置项只增不改：`webui.enable` 不为 `true` 时 `mount()` 不挂载任何路径、**一条日志也不打**，
+> 设置项只增不改：`server.webui.enable` 不为 `true` 时 `mount()` 不挂载任何路径、**一条日志也不打**，
 > 与改造前的行为逐字一致。旧用户的 `config/config/server.yaml` 里没有 `webui` 键，
 > 因此升级后默认就是关闭的（失败向安全倒）。
 >
@@ -120,10 +120,34 @@
 > 2. **未命中的 `/api/v1/*` 返回 JSON 404**，不落到宿主的 `302 → server.redirect`：
 >    对 API 客户端来说「一个 HTML 跳转」比 404 难排查得多。
 >
-> 测试：`tests/unit/web/{security,server}.test.js` 共 34 个用例，全部走真实 HTTP
+> 测试：`tests/unit/web/{security,server}.test.js` 共 36 个用例，全部走真实 HTTP
 > （`node:http` 而不是 `fetch`——后者表达不了「不带 `Content-Length`」的 chunked 请求）。
 > 其中一条特意写成断言**性质**而不是次数：限流的回填按真实时间走，
 > 「第 61 次必被拦」在快机器上会假红。
+>
+> ⚠️ **真跳才发现的错（值得单独记一笔）**：最初把开关写成 `cfg.webui.enable`。
+> `cfg.<名字>` 映射的是 `config/config/<名字>.yaml` 这个**文件**，而不是嵌套键，
+> 所以它会去找一个不存在的 `webui.yaml`、读到 `undefined`——
+> **面板会永不启用，而不报任何错**。现在有两条用例盯着这个形状
+> （正确的 `cfg.server.webui.enable` 生效；写成顶层 `cfg.webui` 时不生效），
+> 坑本身也写进了 `dev-notes.md` §9。
+>
+> **真机验证（2026-09-24）**：临时把 `config/config/server.yaml` 改成
+> `webui.enable: true` 并配一个临时令牌，验完已还原（用户配置未被改动）。
+>
+> ```
+> [MARK][  Server  ] 启动 HTTP 服务器 http://[::]:2536
+> [MARK][   WebUI  ] WebUI 已挂载：/api/v1（鉴权头：Authorization）
+> [WARN][   WebUI  ] server.address 未配置，HTTP 服务监听在 Node 的默认网卡上…
+>
+> GET /api/v1/ready  不带令牌 → HTTP 401
+> GET /api/v1/ready  带令牌   → {"ready":true,"online":2,"uptime":10}
+> GET /api/v1/nope   带令牌   → HTTP 404（JSON，而不是宿主的 302 跳转）
+> ```
+>
+> 这次真跑是**必要**的：单测注入的是假配置，而"配置读不到"恰好是这类接线最典型的
+> 失败方式（见上面的 ⚠️）——只有真读一次真实 YAML 才证明得了。同一轮也顺带确认了
+> 新接口与既有鉴权是同一套（不带令牌照样 401）。
 
 ### 3.4 前端
 
@@ -177,7 +201,7 @@
 | 文件 | 改动 |
 |---|---|
 | `lib/bot.js` | 引入 `lib/web/server.js`；**不改** 现有路由与鉴权逻辑 |
-| `config/default_config/server.yaml` | 新增 `webui.enable`（默认 `false`）、监听地址字段；保持既有键不变 |
+| `config/default_config/server.yaml` | 新增 `server.webui.enable`（默认 `false`）、`server.address`；保持既有键不变 |
 
 ---
 

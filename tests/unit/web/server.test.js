@@ -72,6 +72,8 @@ afterEach(async () => {
 /**
  * 造一个 WebUI 实例，外加一个会把日志记下来的宿主替身。
  *
+ * 注意配置形状：开关在 `server.yaml` 的嵌套键里，即 `cfg.server.webui.enable`。
+ *
  * @param {{ enable?: boolean, auth?: Record<string, string>, online?: number, address?: string }} [opts] 选项
  * @returns {{ webui: WebUI, host: { logs: unknown[][], makeLog: Function } }} 实例与宿主替身
  */
@@ -79,7 +81,7 @@ function makeWebUI({ enable = true, auth = { Authorization: "t" }, online = 2, a
   /** @type {{ logs: unknown[][], makeLog: Function }} */
   const host = { logs: [], makeLog: (...args) => host.logs.push(args) }
   const webui = new WebUI({
-    cfg: { webui: { enable }, server: { auth, address } },
+    cfg: { server: { webui: { enable }, auth, address } },
     onlineOf: () => online,
     hostOf: () => host,
   })
@@ -105,6 +107,23 @@ function hostApp(webui) {
   app.use((req, res) => res.status(418).send("宿主兜底"))
   return app
 }
+
+describe("挂载门卫：配置键空间", () => {
+  it("从 server.yaml 的嵌套键读开关", () => {
+    const { webui } = makeWebUI()
+    expect(webui.enabled).toBe(true)
+  })
+
+  it("写成顶层 cfg.webui 时不生效 —— 那会去找 config/config/webui.yaml", () => {
+    // 这个用例防的是一次真实踩过的错：`cfg.<名字>` 映射的是**文件**而不是嵌套键。
+    // 写成 cfg.webui.enable 时，它会去找一个不存在的 webui.yaml，读到 undefined，
+    // 于是面板永不启用而没有任何报错——静默失败，比报错难查得多。
+    const webui = new WebUI({
+      cfg: /** @type {any} */ ({ webui: { enable: true }, server: { auth: { A: "t" } } }),
+    })
+    expect(webui.enabled).toBe(false)
+  })
+})
 
 describe("挂载门卫：默认关闭", () => {
   it("未启用时不挂载，请求落到宿主的兜底", async () => {
@@ -145,7 +164,7 @@ describe("挂载门卫：启用但鉴权未配置", () => {
   it("auth 整个键都不存在时同样拒绝（旧配置里没有这个键）", () => {
     // 不能走 makeWebUI：它的默认参数会把 undefined 换成默认值，那样测的就不是缺失了
     const webui = new WebUI({
-      cfg: { webui: { enable: true }, server: { address: "127.0.0.1" } },
+      cfg: { server: { webui: { enable: true }, address: "127.0.0.1" } },
       onlineOf: () => 2,
       hostOf: () => ({ makeLog() {} }),
     })
@@ -235,7 +254,7 @@ describe("就绪语义：启动期不能挂起", () => {
 describe("默认依赖：不注入时读全局 Bot", () => {
   it("onlineOf 缺省读 globalThis.Bot.stat.online（与 lib/bot.js 的接线一致）", () => {
     // tests/helpers/env.js 装的 Bot 替身 stat.online 是 2
-    const webui = new WebUI({ cfg: { webui: { enable: true }, server: { auth: { A: "t" } } } })
+    const webui = new WebUI({ cfg: { server: { webui: { enable: true }, auth: { A: "t" } } } })
     let passed = false
     // 就绪状态下探针直接放行，不会碰 res
     webui.earlyProbe({ originalUrl: `${API_PREFIX}/ready` }, {}, () => (passed = true))
@@ -246,7 +265,7 @@ describe("默认依赖：不注入时读全局 Bot", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
       const webui = new WebUI({
-        cfg: { webui: { enable: true }, server: {} },
+        cfg: { server: { webui: { enable: true }, auth: {} } },
         onlineOf: () => 2,
         hostOf: () => ({}),
       })
