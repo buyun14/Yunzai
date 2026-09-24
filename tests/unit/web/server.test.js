@@ -1,4 +1,7 @@
+import fs from "node:fs"
 import http from "node:http"
+import os from "node:os"
+import path from "node:path"
 import express from "express"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { API_PREFIX, UI_PREFIX, WebUI } from "../../../lib/web/server.js"
@@ -13,6 +16,9 @@ import { API_PREFIX, UI_PREFIX, WebUI } from "../../../lib/web/server.js"
 
 /** 已启动的临时服务，`afterEach` 统一关掉（否则 vitest 会因为句柄未释放而不退出） */
 const servers = []
+
+/** `makeFakeDist()` 造的临时目录，`afterEach` 一并删掉 */
+const tempDirs = []
 
 /**
  * 发起一次真实请求。
@@ -67,6 +73,14 @@ afterEach(async () => {
         }),
     ),
   )
+  // 临时目录删失败不该让用例变红（Windows 上偶尔会被杀毒/索引占用），
+  // 但也不能静默：真删不掉时把它写进 stderr，至少留下线索
+  for (const dir of tempDirs.splice(0))
+    try {
+      fs.rmSync(dir, { recursive: true, force: true })
+    } catch (err) {
+      console.error("临时目录没删掉：", dir, err)
+    }
 })
 
 /**
@@ -92,20 +106,57 @@ function makeWebUI({ enable = true, auth = { Authorization: "t" }, online = 2, a
  * 造一个"宿主应用"，中间件顺序与 `lib/bot.js` 一致。
  *
  * 兜底用 418 而不是 404：这样能一眼区分"是 WebUI 答复的"还是"漏到宿主了"。
+ * 兜底**永远最后挂**（含 `auth` 时也是），否则它会抢在鉴权检查前面把请求答掉。
  *
  * @param {WebUI} webui 实例
+ * @param {{ distDir?: string, auth?: Record<string, string> }} [opts] 选项
  * @returns {import("express").Express} 应用
  */
-function hostApp(webui) {
+function hostApp(webui, { distDir, auth } = {}) {
   const app = express()
+  // 与 lib/bot.js 一致：`skip_auth` 是挂在 express 应用上的数组，
+  // WebUI 挂载时会往里追加静态资源前缀
+  app.skip_auth = []
   app.use(webui.earlyProbe.bind(webui))
+  // 与 lib/bot.js 一致的顺序：**早期探针 → WebUI 前端 → serverAuth**。
+  // 前端**挂在根上**、自己判断 `/dashboard` 前缀：实测 `app.use(UI_PREFIX, …)`
+  // 这一层在 express 5 下不被匹配，请求会直接挂住（详见 lib/web/server.js）。
+  app.use(webui.frontend({ distDir, skipAuth: app.skip_auth }))
+
+  // 复刻 `lib/bot.js` 的 `serverAuth` 里与本议题相关的部分：
+  // `skip_auth` 前缀放行（`startsWith`），否则要求头名与令牌都对上。
+  if (auth)
+    app.use((req, res, next) => {
+      for (const prefix of app.skip_auth || [])
+        if (req.originalUrl.startsWith(prefix)) return next()
+      for (const name in auth) if (req.headers[name.toLowerCase()] === auth[name]) return next()
+      res.status(401).type("text").send("Unauthorized")
+    })
+
   app.use(express.urlencoded({ extended: false }))
   app.use(express.json())
   app.use(express.raw())
   app.use(express.text())
-  webui.mount(app)
+  webui.mount(app, { distDir })
   app.use((req, res) => res.status(418).send("宿主兜底"))
   return app
+}
+
+/**
+ * 造一个**看起来像**构建产物的目录。
+ *
+ * 静态挂载的行为只能用真实的文件系统验：`express.static` 的
+ * 目录/回退/未命中语义都发生在它内部，mock 掉就等于没测。
+ *
+ * @returns {string} 临时目录（`afterEach` 一并清掉）
+ */
+function makeFakeDist() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "yz-dashboard-"))
+  fs.mkdirSync(path.join(dir, "assets"), { recursive: true })
+  fs.writeFileSync(path.join(dir, "index.html"), "<!doctype html><title>面板入口</title>")
+  fs.writeFileSync(path.join(dir, "assets", "index-abc123.js"), "console.log('panel')")
+  tempDirs.push(dir)
+  return dir
 }
 
 describe("挂载门卫：配置键空间", () => {
@@ -150,7 +201,9 @@ describe("挂载门卫：启用但鉴权未配置", () => {
     const app = hostApp(webui)
 
     const result = webui.mount(app)
-    expect(result).toEqual({ mounted: false, reason: "no-auth" })
+    // 用 toMatchObject 而不是 toEqual：`mount()` 还会回一个 `frontend` 字段
+    // （"dist" / "missing"），那条信息只给调用方看，不该让这条门卫用例跟着变
+    expect(result).toMatchObject({ mounted: false, reason: "no-auth" })
 
     const text = JSON.stringify(host.logs)
     expect(text).toContain("server.auth 为空")
@@ -169,7 +222,7 @@ describe("挂载门卫：启用但鉴权未配置", () => {
       hostOf: () => ({ makeLog() {} }),
     })
     expect(webui.hasAuth).toBe(false)
-    expect(webui.mount(express())).toEqual({ mounted: false, reason: "no-auth" })
+    expect(webui.mount(express())).toMatchObject({ mounted: false, reason: "no-auth" })
   })
 })
 
@@ -197,7 +250,7 @@ describe("挂载门卫：启用且已配置鉴权", () => {
     const { webui } = makeWebUI()
     const app = hostApp(webui)
 
-    expect(webui.mount(app)).toEqual({ mounted: true, reason: "already" })
+    expect(webui.mount(app)).toMatchObject({ mounted: true, reason: "already" })
     const url = await serve(app)
     expect((await request(url, `${API_PREFIX}/ready`)).status).toBe(200)
   })
@@ -206,7 +259,12 @@ describe("挂载门卫：启用且已配置鉴权", () => {
     const { webui, host } = makeWebUI()
     webui.mount(express())
 
-    const warn = host.logs.find(args => args[0] === "warn")
+    // 按**内容**定位，不按「第一条 warn」定位：挂载路径上不止一条 warn
+    // （前端没构建时也会 warn），按下标取会随无关改动而红
+    const warn = host.logs.find(
+      args => args[0] === "warn" && JSON.stringify(args).includes("server.address"),
+    )
+    expect(warn, "没有提示监听地址").toBeDefined()
     expect(JSON.stringify(warn)).toContain("127.0.0.1")
   })
 })
@@ -369,6 +427,104 @@ describe("安全中间件确实挂在链上", () => {
     expect(blocked, "连打 300 次都没触发限流").toBeDefined()
     expect(JSON.parse(blocked.text).code).toBe("rate_limited")
     expect(Number(blocked.headers["retry-after"])).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe("前端静态资源", () => {
+  it("接上真实鉴权后 /dashboard/ 仍能打开 —— 浏览器没法给文档请求带自定义头", async () => {
+    // 这是**真机跳出来的坑**（2026-09-24）：第一版只把 `/dashboard/assets` 放进了
+    // `skip_auth`，而入口文档走的是 `serverAuth` —— 结果 assets 200、`/dashboard/` 401，
+    // 面板压根打不开。前面的用例都直接请求 assets 与 API，从不请求面板根路径，
+    // 所以这个组合在接入鉴权的测试之前是**测不出来**的。
+    const { webui } = makeWebUI({ address: "127.0.0.1" })
+    const auth = { Authorization: "t" }
+    const url = await serve(hostApp(webui, { distDir: makeFakeDist(), auth }))
+
+    // `/dashboard`（不带斜杠）由 express 的挂载语义 301 到 `/dashboard/`，
+    // 浏览器会自动跟随——所以真正要求 200 的是带斜杠的那个形状。
+    const res = await request(url, `${UI_PREFIX}/`)
+    expect(res.status, `${UI_PREFIX}/ 应当免鉴权放行（浏览器拿不到令牌）`).toBe(200)
+    expect(res.text).toContain("面板入口")
+
+    // 资源也必须免鉴权（<script> / <link> 同样带不了头）
+    expect((await request(url, `${UI_PREFIX}/assets/index-abc123.js`)).status).toBe(200)
+  })
+
+  it("免鉴权只覆盖入口文档与 assets：其余 /dashboard/** 仍要令牌", async () => {
+    const { webui } = makeWebUI({ address: "127.0.0.1" })
+    const auth = { Authorization: "t" }
+    const url = await serve(hostApp(webui, { distDir: makeFakeDist(), auth }))
+
+    // `/dashboard` 是适配器可以注册路径的地方。把整个前缀放进 skip_auth
+    // 会连别人的路由一起放宽，所以这一层刻意只认两个形状。
+    const other = await request(url, `${UI_PREFIX}/whatever`)
+    expect(other.status).toBe(401)
+
+    // API 一律要令牌
+    expect((await request(url, `${API_PREFIX}/status`)).status).toBe(401)
+    expect(
+      (await request(url, `${API_PREFIX}/status`, { headers: auth })).status,
+      "带对了令牌就该通过",
+    ).toBe(200)
+  })
+
+  it("挂载 dist 后 /dashboard/ 回 index.html、/dashboard/assets/* 回真实文件", async () => {
+    const { webui } = makeWebUI({ address: "127.0.0.1" })
+    const dist = makeFakeDist()
+    const url = await serve(hostApp(webui, { distDir: dist }))
+
+    const index = await request(url, `${UI_PREFIX}/`)
+    expect(index.status).toBe(200)
+    expect(index.text).toContain("面板入口")
+
+    const asset = await request(url, `${UI_PREFIX}/assets/index-abc123.js`)
+    expect(asset.status).toBe(200)
+    expect(asset.text).toContain("panel")
+  })
+
+  it("把 /dashboard/assets 追加进 skip_auth —— 否则 <script> 一律 401、面板白屏", async () => {
+    const { webui } = makeWebUI({ address: "127.0.0.1" })
+    const app = hostApp(webui, { distDir: makeFakeDist() })
+
+    // 这是本节的**唯一**鉴权例外，只放静态资源；
+    // 它必须是一个前缀判断（宿主 serverAuth 用的是 startsWith）
+    expect(app.skip_auth).toContain(`${UI_PREFIX}/assets`)
+    // 面板本身与 API **不**放行
+    expect(app.skip_auth).not.toContain(UI_PREFIX)
+    expect(app.skip_auth).not.toContain(API_PREFIX)
+  })
+
+  it("dist 里没有 index.html 时只打 warn，API 照常可用", async () => {
+    const { webui, host } = makeWebUI({ address: "127.0.0.1" })
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), "yz-dashboard-empty-"))
+    tempDirs.push(empty)
+
+    const url = await serve(hostApp(webui, { distDir: empty }))
+
+    const warn = host.logs.find(
+      args => args[0] === "warn" && String(args[1][0]).includes("还没构建"),
+    )
+    expect(warn, "没构建前端时必须留下一条能看懂的 warn").toBeDefined()
+    // 关键：面板没构建**不该**让 API 跟着不可用
+    expect((await request(url, `${API_PREFIX}/ready`)).status).toBe(200)
+  })
+
+  it("非根路径不落到 SPA 回退，交给宿主的兜底", async () => {
+    const { webui } = makeWebUI({ address: "127.0.0.1" })
+    const url = await serve(hostApp(webui, { distDir: makeFakeDist() }))
+
+    // 面板是 hash 路由（见 dashboard/src/router），入口只有 index.html 一个，
+    // 所以没有"任意路径都回 index"的 history 回退——那会把宿主原有路径吃掉
+    expect((await request(url, `${UI_PREFIX}/whatever`)).status).toBe(418)
+  })
+
+  it("未挂载前端时 /dashboard/ 仍由早期探针/兜底处理（不受静态挂载影响）", async () => {
+    const { webui } = makeWebUI({ enable: false })
+    const url = await serve(hostApp(webui, { distDir: makeFakeDist() }))
+
+    // 未启用时连静态资源都不该挂
+    expect((await request(url, `${UI_PREFIX}/`)).status).toBe(418)
+    expect((await request(url, `${UI_PREFIX}/assets/index-abc123.js`)).status).toBe(418)
   })
 })
 

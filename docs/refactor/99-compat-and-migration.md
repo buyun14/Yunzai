@@ -90,6 +90,16 @@ try {
 - `Bot.express.quiet`：前缀数组，命中的路径降为 debug 日志
 - 既有路由：`/status`、`/exit`、`/File`
 
+> **阶段 6 的追加（2026-09-24，只增不改）**：`skip_auth` 里多了一个
+> `/dashboard/assets`，仅当 `server.webui.enable === true` 且 `server.auth` 非空时写入
+> （`lib/web/server.js` 的 `frontend()`）。**只追加、不移除、不改判断方式**，
+> 既有前缀与既有路由的行为逐字不变。
+>
+> 同一阶段还多了一层**前端中间件**，插在 `serverAuth` **之前**
+> （`lib/bot.js` 的 `express` 链：`earlyProbe` → 前端 → `serverAuth`）。
+> 它只对 `GET/HEAD` 的 `/dashboard` 与 `/dashboard/` 直接答复入口文档，
+> 其余一律 `next()`；未启用 WebUI 时是纯透传。理由与边界见 BCR-0002。
+
 ### 1.2 L1 适配层
 
 | 原则 | 说明 |
@@ -162,6 +172,22 @@ try {
 | 编号 | 阶段 | 变更 | 影响面 | 兼容层 | 迁移方式 | 淘汰条件 | 状态 |
 |---|---|---|---|---|---|---|---|
 | BCR-0001 | 5 | 删除 `sequelize` / `sqlite3` 依赖与 `db.yaml` | 声明了这些依赖的未知第三方插件 | 无（当前仓库内零引用） | 删除前 grep 确认；`db.yaml` 移入备份目录而非直接删除；CHANGELOG 说明 | 发布两个版本后 | � 告警期（2026-09-24 已决策删除，未执行） |
+| BCR-0002 | 6 | 面板的两个前端路径免鉴权：`/dashboard/assets` 进 `skip_auth`，`/dashboard` 与 `/dashboard/` 由前端中间件直接答 | **既有路径零影响**（只追加前缀，`serverAuth` 的判断逻辑与顺序都没动）。新增两处**免鉴权**入口 | 无 | 只在 `server.webui.enable === true` **且** `server.auth` 非空时生效；默认关闭时 `mount()` 连日志都不打，`skip_auth` 保持空数组 | 面板改为把令牌烘进 HTML（不打算做） | 已合入（2026-09-24） |
+
+> **BCR-0002 为什么要走登记**：它确实放宽了鉴权——`<script>` / `<link>` 没法带自定义头，
+> 不放行 `/dashboard/assets` 就是「HTML 出来了、脚本全 401」；而**入口文档本身**
+> （浏览器打开面板的第一个请求）同样带不了头，只放行 assets 会得到
+> 「文档 401、资源 200」的诡异组合（真机实测）。
+>
+> 判定为**可接受**的依据：① 入口文档与打包产物里不含任何密钥（密钥只出现在
+> `/api/v1/*` 的响应里，那些路径仍然要令牌）；② 门卫保证「启用必须有 auth」，
+> 所以不存在"放行了文档就等于敞开"的部署；③ `dashboard` 的脚本源码本来就是公开的，
+> 多要一个令牌挡不住任何人。
+>
+> **放宽的边界是刻意收窄的**：`skip_auth` 只拿到 `/dashboard/assets` **一个前缀**
+> （它是 `originalUrl.startsWith` 匹配，把 `/dashboard` 整个放进去会连适配器挂在
+> 它下面的路由一起免鉴权）；入口文档走的是前端中间件里"只认 `""` 与 `"/"` 两个形状"
+> 的判断，`/dashboard/whatever` 照旧 401（有单测守着）。
 
 模板：
 

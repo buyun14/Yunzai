@@ -1,5 +1,8 @@
 packages:
   - "plugins/**"
+  # WebUI 前端工程（Vue 3 + Vite）。它自带 package.json 与依赖表，
+  # 装法与联调见 dashboard/README.md；构建产物不进仓库。
+  - "dashboard"
 
 patchedDependencies:
   body-parser@2: lib/modules/body-parser.patch
