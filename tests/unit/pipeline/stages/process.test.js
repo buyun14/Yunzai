@@ -97,6 +97,45 @@ describe("ProcessStage：rule 匹配", () => {
     expect(ctx.isStopped(event)).toBe(true)
   })
 
+  it("处理器以插件实例为 this 调用（真实插件靠 this.e 取事件）", async () => {
+    /** @type {unknown[]} */
+    const seen = []
+    const entry = makePluginEntry(
+      "读this",
+      { rule: [{ reg: /复读/, fnc: "onMsg" }] },
+      {
+        // 与 miao-plugin 的 components/App.js 同形：处理器内部经由 this 取事件。
+        // 若被拆成裸函数调用，this 会是 undefined 并直接抛 TypeError。
+        async onMsg() {
+          seen.push(this.e.user_id, this.name)
+          return true
+        },
+      },
+    )
+    await dispatch([entry])
+
+    expect(seen).toEqual([10001, "读this"])
+  })
+
+  it("处理器能通过 this.e.reply 发消息（预处理阶段已包装好）", async () => {
+    /** @type {unknown[]} */
+    const seen = []
+    const entry = makePluginEntry(
+      "会回复",
+      { rule: [{ reg: /复读/, fnc: "onMsg" }] },
+      {
+        async onMsg() {
+          seen.push(await this.e.reply("来自插件"))
+          return true
+        },
+      },
+    )
+    const { sent } = await dispatch([entry])
+
+    expect(sent).toEqual([{ msg: "来自插件", quote: false, data: {} }])
+    expect(seen[0]).toMatchObject({ message_id: "sent-1" })
+  })
+
   it("正则不命中时不调用处理器", async () => {
     const handler = vi.fn()
     const entry = makePluginEntry(

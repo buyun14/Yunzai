@@ -164,9 +164,10 @@ PR #4960 至今仍为 `[WIP]`，且其自列的已知问题包括“内置命令
 
 | 文件 | 改动 |
 |---|---|
-| `lib/plugins/loader.js` | `deal()` 改为"入队 + 由 EventBus 分派"；**保留** `deal()` 作为兼容入口（旧代码/插件直接调用它时仍走旧路径或转发到总线） |
-| `lib/events/*.js` | 由直接调用 `plugins.deal(e)` 改为 `eventBus.commit(e)` |
-| `lib/bot.js` | 初始化时创建 `EventBus`，并在 `exit()` 时优雅关停 |
+| `lib/listener/listener.js` | 新增 `this.events`（指向 `EventBus` 单例）；`this.plugins` **保留**——旧监听器与插件可能直接调 `deal()` |
+| `lib/events/message.js` / `notice.js` / `request.js` | `this.plugins.deal(e)` → `this.events.commit(e)`；**同样不 `await`**（见 §6） |
+| `lib/plugins/loader.js` | `deal()` **一行未改**，作为旧路径与兼容入口保留到第 5 步清理 |
+| `lib/bot.js` | **不需要改**。`EventBus` 是懒初始化的单例（档案按 `self_id` 首次出现时才建），没有启动/退出钩子要挂 |
 
 ---
 
@@ -222,16 +223,41 @@ export async function processStages(ctx, event, from = 0) {
 
 ```mermaid
 flowchart LR
-  P["适配器 / 事件监听"] -->|commit| Q["EventBus 队列"]
-  Q --> R{"按 umo 解析<br/>配置档案"}
-  R --> S1["档案 A 的 Scheduler<br/>独立 stage 实例"]
-  R --> S2["档案 B 的 Scheduler<br/>独立 stage 实例"]
+  P["适配器 / 事件监听"] -->|commit| Q["EventBus 按 self_id 路由"]
+  Q --> R1["档案 A 的 Scheduler<br/>独立 stage 实例"]
+  Q --> R2["档案 B 的 Scheduler<br/>独立 stage 实例"]
 ```
 
-- **配置档案（profile）**：沿用 `cfg.getGroup(self_id, group_id)` 的键空间语义，档案 = `self_id`（Bot 账号）+ 群/私聊配置解析结果；
-- 每个档案拥有一组**独立的 Stage 实例**，因此 `RateLimitStage` 的冷却表天然以档案为界，问题 C 被顺手修掉（键不再需要手写 `self_id`）；
-- 队列消费用 `for await` 串行 + `Promise` 并发控制，避免慢阶段（渲染截图）阻塞整个账号。
-  - **注意**：并发度不能简单设为"无限"。现状是同账号消息串行处理，改成并发会改变 `msgThrottle` 去重与插件内部的隐式时序假设。建议 v1 **保持串行**，只做结构改造，把并发留到有实测数据后再开。
+- **配置档案（profile）**：沿用 `cfg.getGroup(self_id, group_id)` 的键空间语义，档案 = `self_id`（Bot 账号）；
+- 每个档案拥有一组**独立的 Stage 实例**，因此 `RateLimitCheckStage` 的冷却表天然以档案为界，问题 C 被顺手修掉
+  （键仍需写 `self_id`，因为同一用户的去重键要区分是哪个 bot 收到的）；
+- 档案**懒创建**（`self_id` 只有连上来才知道），每个档案的首条消息多一次 `await`（等阶段实例化）；
+  之后走同步快路径——`commit()` 在第一个 `await` 之前就调用了 `execute()`，
+  于是流水线前缀与 `Bot.emit` 仍处于同一个 tick。
+
+### 6.1 没有队列（对计划的一次修正）
+
+本节早先写着"队列消费用 `for await` 串行"，并假设"现状是同账号消息串行处理"。
+**这个假设是错的**，因此实现里**刻意没有排队**：
+
+- `Bot.em()` 走的是**同步**的 `EventEmitter.emit`，而 `lib/events/*.js` 的 `execute()` 并没有
+  `await` 返回值——旧 `deal()` 的 Promise 是**被丢弃**的，多条消息本来就并发执行；
+- 只有 `deal()` 里第一个 `await` **之前**的那段前缀是每事件原子的，
+  而限流检查（`checkLimit`）与提交（`setLimit`）恰好都在那段前缀里，
+  所以限流本身没有被并发破坏；
+- 因此"v1 保持串行"**不是**保持现状，而是**引入**行为变更：插件处理器会从并发变成串行。
+  慢插件会阻塞同账号的其他消息，而插件的隐式时序假设也可能依赖并发——
+  这需要单独的 ADR 与实测数据，不能当作"结构改造"顺带做掉。
+
+插入点已经留好：将来要排队就把 `commit()` 里的 `scheduler.execute(event)` 换成入队 + 由泵消费，
+阶段代码一行不用改。
+
+### 6.2 回退开关
+
+`config/config/bot.yaml` 的 `legacy_pipeline: true` 回退到旧 `deal()`；**缺省走新流水线**。
+开关是**每次提交时**读的（`cfg` 对 yaml 有缓存，不引入额外 IO），所以支持热更新；
+状态变化时会打一条日志（`使用新版消息流水线` / `已启用旧版消息流水线`），
+避免“用户以为开了开关其实没开”这类最难排查的情况。
 
 ---
 
@@ -255,8 +281,9 @@ flowchart LR
 | 2a | `dispatch.js` 纯函数集 | ✅ 已完成：`matchesEvent` / `normalizeText` / `checkPermission` / `isPluginEnabled` / `shouldReplyOnlyAt` / `matchId` / `truncateForLog` / `asChatTarget` / `instantiate` / `callables` / `replyOf` |
 | 3 | 影子运行对比 | ✅ 已完成：43 个场景，旧 `deal()` 与新流水线的可观测结果**逐项一致**（`tests/unit/pipeline/shadow.test.js`） |
 | 3a | `lib/pipeline/bootstrap.js` | ✅ 已完成：显式 import 全部 9 个 stage + `bootstrapPipeline()` 校验并排序；`scheduler.initialize()` 改为走它 |
-| 4 | EventBus 落地 + 切换（`deal()` 改为入队） | ⬜ 未开始 |
-| 5 | 清理旧路径 | ⬜ 未开始 |
+| 4 | EventBus 落地 + 切换（`deal()` → `commit()`） | ✅ 已完成：`lib/event-bus.js`（按 `self_id` 分档案、懒初始化、`legacy_pipeline` 回退开关）+ 3 个事件监听接线 |
+| 4a | 真机验证（stdin 适配器端到端） | ✅ 已完成：新路径 + 回退路径各跑通，并**揪出 3 个只在真机暴露的缺陷**（见 §7.4 第 7-9 条） |
+| 5 | 清理旧路径 | ⬜ 未开始：`deal()` 与其过程式策略代码仍在
 
 ### 7.2 影子运行怎么做的
 
@@ -277,14 +304,19 @@ flowchart LR
 2. **防不敏感**：把黑名单换掉后结果必须不同。
 3. **防污染**：两侧各自用新实例/新上下文，重复运行结果必须完全一致。
 
-### 7.3 仍需人工验证的部分
+### 7.3 影子运行覆盖不到的东西（测试方法学的边界）
 
-影子运行覆盖的是**决策逻辑**，以下不在其范围内，需要真实启动验证（阶段 5 之前完成）：
+影子运行比的是**决策逻辑**。以下不在其射程内，是它的固有边界（不是"以后补"）：
 
-- 真实的 `Runtime.init()`（替身化了，它涉及 puppeteer 与各插件的缓存注册）；
+- 真实的 `Runtime.init()`（被替身化了，它涉及 puppeteer 与各插件的缓存注册）；
 - redis 计数写入（`loader.count` 被替身化，两侧共用替身所以能验证"何时调用"，不能验证写入了什么）；
 - 定时任务、适配器生命周期、插件热重载；
-- 影子运行用的是手工夹具，不是真实适配器载荷。建议切换前用真实账号录制一段时间的事件做一次回放。
+- **插件内部对 `this` 的依赖**——这一条是真正吃过亏的：夹具一开始全用箭头函数，
+  于是"处理器/`getContext` 必须以插件实例为 `this` 调用"这个约束整类都测不出来，
+  最后是 §7.5 的真机验证揪出来的。教训：夹具要照真实插件的写法写，不能只图方便。
+
+> 这些都是"影子运行再怎么写也盖不住"的东西，所以它**不能替代真机验证**——
+> 两者是互补的，不是重复的。
 
 ---
 
@@ -300,15 +332,58 @@ flowchart LR
 | 4 | `deal()` 的唤醒门槛在 `getContext()` 之后，且 `getContext()` **无条件调用两次** | 顺序敏感的第三处约束，已写进 `stage-order.js` 与阶段注释 |
 | 5 | `e.only_reply_at` 由 `NormalizeStage` 算出，而 `RateLimitCheckStage` 读 `e.isPrivate`——该字段此时**尚未赋值** | 私聊不会走限流早退分支。测 `RateLimitCheckStage` 时不能顺手跑归一化，否则会“修正”掉真实行为 |
 | 6 | `Object.defineProperty(e, "isSr", …)` 未声明 `configurable` | 同一事件对象上重复执行 `ProcessStage` 会抛 TypeError。**影子运行必须用事件副本**，已写成用例锁定 |
-| 7 | `checkDisable(Object.assign(i.plugin, { e }), groupCfg)` 会把每事件的 `e` 写进**共享的**插件声明对象 | 新实现用 `isPluginEnabled(pluginName, groupCfg)` 取值传参，不产生这个副作用。该字段只在 `groupCfg ||= …` 兜底分支里会被读到，而该分支永远不会命中，因此行为等价 |
+| 7 | `checkDisable(Object.assign(i.plugin, { e }), groupCfg)` 会把每事件的 `e` 写进**共享的**插件实例上 | **这一步是契约，不是副作用**（见下方更正）。写法上仍用 `isPluginEnabled(pluginName, groupCfg)` 取值传参，但 `e` 必须照挂 |
+| 8 | `plugin.getContext()` 内部会经由 `conKey()` 读 `this.e.self_id` / `this.e.user_id` / `this.e.group_id` | 它**同时要求**两件事：以插件实例为 `this` 调用，且实例上已挂好本次事件的 `e`。缺任何一个都会抛 `Cannot read properties of undefined (reading 'conKey')` |
+| 9 | 命令处理器（如 miao-plugin 的 `components/App.js`）普遍用 `this.e` 取事件 | 处理器同样必须作为**方法调用**，拆成裸函数会抛 `... (reading 'e')` |
 
-第 7 条是**有意的行为收紧**（去掉对共享对象的每事件写入）；前 6 条都是“照实复刻”。
+第 7 条曾在本文里被写成“有意的行为收紧（去掉对共享对象的每事件写入），行为等价”。
+**那个结论是错的**，第 7、8、9 条实际上属于同一件事，而且都是真机验证才暴露出来的：
+
+> `getContext()` 与处理器都依赖 `this` 指向插件实例，而 `this.e` 又依赖 `Object.assign` 那行先执行。
+> 当时把 `Object.assign` 当成“可省的副作用”删掉，同时又把 `getContext` 与处理器拆成裸函数调用，
+> 结果是旧 `deal()` 能跑、新流水线每一条命令都报错。
+
+**两道防线都失效了，原因值得记下**：
+
+- `dispatch.js` 里的纯函数单测全过——它们没覆盖“调用时的 `this`”这件事；
+- 影子运行也全过——因为夹具里的 `getContext` / 处理器都写成了箭头函数，**不碰 `this`**。
+  影子运行能发现什么，取决于夹具有多像真实插件；夹具太“礼貌”就会漏掉整个约束类别。
+
+因此修完代码以外还做了三件事：夹具改成照真实形态写（用 `this.e`）、补上对应单测、
+把“依赖 `this.e`”的两个场景加进影子运行场景表。
 
 ### 7.5 本阶段落地的实测结果
 
-- `pnpm test`：**315 个用例全通**（阶段 2 贡献 206 个）；
-- `pnpm lint` / `pnpm lint:eslint` / `pnpm typecheck`：16 error / 9 warning / 273 处，**均与基线持平**；
-- 真实启动冒烟：27 插件 / 5 监听 / 7 适配器 / **零告警**，与阶段 0 基线一致。
+- `pnpm test`：**342 个用例全通**（阶段 2 贡献 233 个）；
+- `pnpm lint` / `pnpm lint:eslint` / `pnpm typecheck`：16 error / 9 warning / **270 处**
+  （比基线 273 少 3，因为顺手修掉了 `listener.js` 的 3 条 JSDoc 错误）；
+- 真实启动冒烟：27 插件 / 5 监听 / 7 适配器 / 零告警，与阶段 0 基线一致。
+
+**真机端到端验证**（这一步不能省，原因见 §7.4）：
+
+用 `plugins/adapter/stdin.js` 直接喂消息，走的是真实 27 插件注册表：
+
+| 场景 | 结果 |
+|---|---|
+| 新流水线 + `#帮助` | miao-plugin 渲染 364KB 图片、发送成功、`[完成431]` |
+| 新流水线 + `#状态` | 正常，且 `消息统计` 递增 —— 证明 `StatisticsStage` 的 redis 计数链路通 |
+| 翻转 `legacy_pipeline: true`（热更新，无需重启） | 日志 `已启用旧版消息流水线`，`#状态` 依旧正常 |
+| 翻回默认 | 日志 `使用新版消息流水线`，恢复正常 |
+
+真机验证一次就揪出 3 个单测与影子运行都没发现的缺陷（§7.4 第 7-9 条）。
+教训：**夹具的“礼貌程度”决定了测试能发现什么**——用箭头函数写的夹具会把
+“调用时的 this”整个约束类别遮掉。
+
+### 7.6 尚未验证的部分
+
+- 真实适配器（OneBotv11 / Milky 等）的载荷——只验证了 stdin 适配器的私聊路径；
+- 群聊路径（`isGroup` 分支、`botAlias` 剥离、群冷却）；
+- 权限拦截路径（`permission: master/admin/owner` 的提示消息）；
+- 多账号并发（两个 `self_id` 同时来消息）——档案隔离只有单测覆盖；
+- 真实 `Runtime.init()`（真机跑到了，但没断言它写了什么缓存）；
+- 启动耗时未重测。
+
+建议在阶段 5 之前用真实账号做一轮覆盖上述路径的手动回归。
 ---
 
 ## 8. 验收标准
@@ -317,10 +392,13 @@ flowchart LR
 - [x] `assertStageCoverage` 在漏注册/多注册/重复注册时抛错，均有单测覆盖
 - [x] `RateLimitCheckStage` / `RateLimitCommitStage` 单测覆盖：群冷却、单人冷却、1 秒同文去重、`only_reply_at` 为假时不提交冷却
 - [x] §2.2 的三处位置敏感约束均有注释标注与用例锁定（唤醒门槛在 hook 之后、私聊不会在限流里早退）
-- [x] 43 个场景（覆盖 14 条事件样本的各类决策路径）在新流水线下的**可观测结果**与旧 `deal()` 完全一致；
-      真机录制的事件回放留到阶段 5 之前（见 §7.3）
-- [ ] `lib/plugins/loader.js` 中 `deal()` 的过程式策略代码已被删除，文件仅剩加载与调度职责
-- [x] 多账号场景：两个 `self_id` 同群时冷却表互不影响（`rate-limit.test.js` 已覆盖）
+- [x] 43 个场景（覆盖 14 条事件样本的各类决策路径）在新流水线下的**可观测结果**与旧 `deal()` 完全一致
+- [x] `EventBus`：按 `self_id` 分档案、懒初始化、并发首条消息共享初始化、初始化失败不污染档案
+- [x] 回退开关 `bot.legacy_pipeline` 双向可用，且**真机验证了热更新**（无需重启即可切换）
+- [x] 真机端到端：`#帮助`（含 miao-plugin 渲染 + 回显）与 `#状态` 在新旧两条路径下均正常
+- [ ] 真机覆盖群聊 / 权限拦截 / 多账号并发路径（见 §7.6）
+- [ ] `lib/plugins/loader.js` 中 `deal()` 的过程式策略代码已被删除，文件仅剩加载与调度职责（第 5 步）
+- [x] 多账号场景：两个 `self_id` 同群时冷却表互不影响（`rate-limit.test.js` + `event-bus.test.js` 已覆盖）
 - [ ] 启动耗时与阶段 0 基线相比无显著回退（已核对插件/监听/适配器数量与告警数，**耗时尚未重测**）
 
 ---

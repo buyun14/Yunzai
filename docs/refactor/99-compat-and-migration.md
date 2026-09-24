@@ -100,6 +100,12 @@ try {
 | 必须登记淘汰条件 | 每条适配在本文件第 4 节登记；无淘汰条件的适配不允许合入 |
 | 必须可观测 | 命中适配时输出一次性 debug 日志（同一插件只提示一次），便于统计存量 |
 
+已登记的 L1 适配：
+
+| 编号 | 阶段 | 适配内容 | 淘汰条件 |
+|---|---|---|---|
+| L1-0001 | 2 | `bot.legacy_pipeline: true` → 走旧 `PluginsLoader.deal()` 而非新流水线 | 新流水线跑完两个发布版本且无回退报告；届时删开关与 `deal()` 一并清理 |
+
 ### 1.3 L2 新契约
 
 | 阶段 | 新契约 |
@@ -119,7 +125,7 @@ try {
 |---|---|---|---|
 | 0 | 无 | 无 | 只加工具链与文档 |
 | 1 | 插件基类构造参数（**新增可选参数**） | 构造函数签名变化导致旧插件异常 | 只新增可选参数，不改变现有解构默认值 |
-| 2 | 事件处理时序、`deal()`、`lib/events/*.js` | 行为静默变化（见 `02-pipeline.md` §2.2 三处顺序约束） | 影子运行逐决策点对比；保留 `deal()` 兼容入口 |
+| 2 | 事件处理时序、`deal()`、`lib/events/*.js` | 行为静默变化（见 `02-pipeline.md` §2.2 三处顺序约束） | 影子运行逐决策点对比；`deal()` **一行未改**作为回退路径；`bot.legacy_pipeline` 开关可热切换 |
 | 3 | 无 | 若为可测性重构生产代码会引入无谓 diff | `vi.stubGlobal` 隔离；生产代码只在既定改造中变动 |
 | 4 | `e.*` 全部字段、`e.reply` 签名、适配器契约 | 影响面最大 | 分 v1/v2/v3 三步，每步零行为变化，录制样本逐字段对比 |
 | 5 | `config/config/*.yaml` 结构 | 损坏用户配置 | 迁移前强制备份；失败即中止；只增改已知键 |
@@ -134,15 +140,15 @@ try {
 
 | 插件 | 类型 | 用到的 L0 面 | 验证状态 | 备注 |
 |---|---|---|---|---|
-| `plugins/miao-plugin` | 第三方（生态核心） | `#miao` / `#miao.models` imports、`Common`、`Renderer` | ⬜ 待验证 | 已 clone 到 `plugins/`。**最高优先级**——它是 `lib/plugins/plugin.js` 的硬依赖来源 |
+| `plugins/miao-plugin` | 第三方（生态核心） | `#miao` / `#miao.models` imports、`Common`、`Renderer` | ✅ 已真机验证 | 已 clone 到 `plugins/`。**最高优先级**——它是 `lib/plugins/plugin.js` 的硬依赖来源。阶段 2 中它是揪出缺陷的关键：它的 `getContext` 与处理器都依赖 `this.e`，单测夹具没盖住 |
 | `plugins/adapter/OneBotv11.js` | 内置适配器 | `Bot.adapter`、`Bot.em`、`Bot.wsf`、`Bot.express` | ⬜ 待验证 | 最完整、最常用，作为适配器契约的基准 |
 | `plugins/adapter/Milky.js` | 内置适配器 | 同上 + `Bot.express.post` | ⬜ 待验证 | 挂 HTTP 路由的样本 |
 | `plugins/adapter/Satori.js` | 内置适配器 | `Bot.adapter`、`Bot.em`、`Bot.emit("online"/"offline")` | ⬜ 待验证 | 直接 `emit` 而非 `em`，需确认兼容 |
 | `plugins/adapter/ComWeChat.js` | 内置适配器 | `Bot.adapter`、`Bot.em`、`Bot.wsf` | ⬜ 待验证 | — |
 | `plugins/adapter/GSUIDCore.js` | 内置适配器 | `Bot.adapter`、`Bot.em`、`Bot.wsf` | ⬜ 待验证 | — |
 | `plugins/adapter/OPQBot.js` | 内置适配器 | `Bot.adapter`、`Bot.em`、`Bot.wsf` | ⬜ 待验证 | — |
-| `plugins/adapter/stdin.js` | 内置适配器 | `Bot.adapter`、`Bot.em` | ⬜ 待验证 | 最小适配器，适合做契约单测的样例 |
-| `plugins/system/status.js` | 内置 | 相对 import `loader.js`、`redis`、`cfg` | ⬜ 待验证 | 直接 import `lib/plugins/loader.js`，阶段 2 改动面最大 |
+| `plugins/adapter/stdin.js` | 内置适配器 | `Bot.adapter`、`Bot.em` | ✅ 已真机验证 | 最小适配器。阶段 2 的真机端到端验证全靠它：可以直接喂消息而不需真实账号 |
+| `plugins/system/status.js` | 内置 | 相对 import `loader.js`、`redis`、`cfg` | ✅ 已真机验证 | 直接 import `lib/plugins/loader.js`，阶段 2 改动面最大 |
 | `plugins/system/{add,friend,invite,quit,master,botOperate,disablePrivate,recallReply}.js` | 内置 | `cfg` 相对 import、`e.*`、`redis` | ⬜ 待验证 | — |
 | `plugins/other/{install,update,restart,version,sendLog}.js` | 内置 | `git` 调用、`cfg`、`redis` | ⬜ 待验证 | `update.js` 会 `git pull`，注意不要误操作本仓 |
 | `plugins/example/*.js` | 示例 | 基础 API | ⬜ 待验证 | 被 `.gitignore` 排除但上游强制跟踪，纳管方式见 `00-prep.md` |

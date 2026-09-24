@@ -88,6 +88,21 @@ describe("WakeupGateStage：插件筛选", () => {
     expect(ctx.stateOf(event).priority).toBeInstanceOf(Array)
     expect(ctx.stateOf(event).priority[0]).toBe(entry)
   })
+
+  it("筛选阶段把 e 挂到**共享**的插件实例上（插件契约的一部分）", async () => {
+    const entry = makePluginEntry("插件A")
+    const { event } = await gate("group-command", [entry])
+    expect(entry.plugin.e).toBe(event)
+  })
+
+  it("插件被筛掉时 e 同样被挂上（旧实现是参数求值，先于判断）", async () => {
+    const entry = makePluginEntry("被禁用的插件")
+    const { event } = await gate("group-command", [entry], {
+      groups: { 67890: { disable: ["被禁用的插件"] } },
+    })
+    expect(event).toBeDefined()
+    expect(entry.plugin.e).toBe(event)
+  })
 })
 
 describe("WakeupGateStage：context hook", () => {
@@ -154,6 +169,41 @@ describe("WakeupGateStage：context hook", () => {
     await gate("group-command", [entry])
 
     expect(hook).toHaveBeenCalledWith("载荷")
+  })
+
+  it("getContext 以插件实例为 this 调用（真实实现在里面读 this.e）", async () => {
+    const hook = vi.fn(async () => "continue")
+    const entry = makePluginEntry(
+      "读this",
+      {
+        // 照真实 plugin.js 的形态写：getContext 内部经由 this 取会话键。
+        // 若被拆成裸函数调用，这里会直接抛 TypeError。
+        getContext() {
+          return { onMsg: `${this.name}:${this.e.user_id}` }
+        },
+      },
+      { onMsg: hook },
+    )
+    await gate("group-command", [entry])
+
+    expect(hook).toHaveBeenCalledWith("读this:10001")
+  })
+
+  it("getContext 依赖 this.e 时不会因为 e 没挂上而抛错", async () => {
+    const entry = makePluginEntry(
+      "用conKey",
+      {
+        getContext(isGroup) {
+          // 与 plugin.js 的 conKey 同形
+          const key = `${this.name}.${this.e.self_id}.${isGroup ? this.e.group_id : this.e.user_id}`
+          return isGroup ? { onMsg: key } : {}
+        },
+      },
+      { onMsg: async () => "continue" },
+    )
+    const { event, ctx } = await gate("group-command", [entry])
+
+    expect(ctx.isStopped(event)).toBe(true)
   })
 
   it("插件实例能拿到事件对象（e 与构造参数都注入）", async () => {

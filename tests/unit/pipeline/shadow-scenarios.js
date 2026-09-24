@@ -75,6 +75,27 @@ export const SCENARIOS = [
     ],
   },
   {
+    // 真实插件（如 miao-plugin 的 components/App.js）的处理器经由 `this.e` 取事件，
+    // 因此处理器必须以插件实例为 this 调用。夹具用箭头函数时这个约束测不出来，
+    // 这里刻意照真实形态写。
+    name: "处理器依赖 this.e",
+    fixture: "group-command",
+    build: record => [
+      entry(
+        "用this",
+        { rule: [ECHO_RULE] },
+        {
+          async onMsg() {
+            record(`用this.onMsg:${this.e.user_id}:${this.name}`)
+            await this.e.reply("来自插件")
+            return true
+          },
+        },
+        record,
+      ),
+    ],
+  },
+  {
     name: "处理器返回 false 时继续同一插件的下一条规则",
     fixture: "group-command",
     build: record => [
@@ -204,6 +225,27 @@ export const SCENARIOS = [
     fixture: "group-command",
     build: record => [
       entry("空上下文", { getContext: () => ({}) }, { onMsg: async () => true }, record),
+      entry("复读机", { rule: [ECHO_RULE] }, { onMsg: async () => true }, record),
+    ],
+  },
+  {
+    // 真实 plugin.js 的 getContext 会经由 this.e 算会话键（conKey）。
+    // 它要求两件事同时成立：方法必须以插件实例为 this 调用，
+    // 且实例上必须已挂好本次事件的 e。缺任何一个都会抛 TypeError。
+    name: "getContext 依赖 this.e（conKey 同形）",
+    fixture: "group-command",
+    build: record => [
+      entry(
+        "用conKey",
+        {
+          getContext(isGroup) {
+            const key = `${this.name}.${this.e.self_id}.${isGroup ? this.e.group_id : this.e.user_id}`
+            return isGroup ? { onMsg: key } : {}
+          },
+        },
+        { onMsg: async () => "continue" },
+        record,
+      ),
       entry("复读机", { rule: [ECHO_RULE] }, { onMsg: async () => true }, record),
     ],
   },
