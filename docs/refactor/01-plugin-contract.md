@@ -109,9 +109,9 @@ plugins/<目录名>/plugin.json
 
 | 关键字 | 支持 | 说明 |
 |---|---|---|
-| `type` | `object` `array` `string` `number` `integer` `boolean` | 必需 |
+| `type` | `object` `array` `string` `number` `integer` `boolean` `null`，**或它们的数组**（联合类型，如 `["string","null"]`） | 必需。数组写法在阶段 5 补上，见下方说明 |
 | `properties` | ✅ | 递归 |
-| `items` | ✅ | 数组元素 |
+| `items` | ✅ | 数组元素，同样支持联合类型 |
 | `required` | ✅ | 缺失时报错 |
 | `default` | ✅ | 首次加载时写入 `config.json` |
 | `enum` | ✅ | 配合 WebUI 的下拉选择 |
@@ -119,9 +119,24 @@ plugins/<目录名>/plugin.json
 | `minLength` / `maxLength` | ✅ | 字符串长度 |
 | `pattern` | ✅ | 字符串正则 |
 | `title` / `description` | ✅ | WebUI 标签与提示 |
-| `x-widget` | ✅ | 自定义渲染提示（如 `textarea`、`color`、`group-select`） |
+| `x-widget` | ✅ | 自定义渲染提示（如 `textarea`、`color`、`password`、`select`、`raw`） |
 | `$ref` / `allOf` / `anyOf` / `oneOf` | ❌ | 不实现，保持校验器简单 |
 | `format` | ❌ | 用 `pattern` 替代 |
+
+> **`type` 的数组写法与 `null`（阶段 5 §3.2 补上的能力）**
+>
+> 宿主配置里有大量"要么填值、要么留空"的键（`chromium_path`、`puppeteer_timeout`、
+> `server.address` …），没有联合类型就只能把它们写成单一类型、在用户留空时报错，
+> 或者干脆不建模。所以 `type` 现在接受数组，命中其一即通过；同时把 `null`
+> 补成合法类型名（此前 `type: "null"` 会被误判成"不支持的 type"）。
+>
+> 两个连带效果，插件作者要知道：
+>
+> - 类型不符时的报错文案会把候选都写出来（`期望 string | null，实际是 number`）；
+> - `items` 里也能用联合类型，所以"QQ 号列表，元素允许写数字或加引号"这类建模
+>   现在是可表达的（`other.yaml` 的名单类配置就是这么写的：运行期两种形态都认）。
+>
+> 对既有 schema 是**纯增量**：仓库里此前没有任何 schema 用过数组写法。
 
 ### 3.3 行为契约（声明式过滤）
 

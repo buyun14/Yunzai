@@ -25,6 +25,19 @@ describe("checkSchema（schema 自检）", () => {
     expect(errors[0].message).toContain("不支持的 type")
   })
 
+  it("接受类型数组，并逐个元素自检", () => {
+    expect(checkSchema({ type: ["string", "null"] })).toEqual([])
+    expect(checkSchema({ type: ["string", "integer"] })).toEqual([])
+    // 数组里的坏元素要报出来，且带定位
+    const errors = checkSchema({ type: ["string", "date"] })
+    expect(paths(errors)).toEqual([".type"])
+    expect(errors[0].message).toContain("date")
+  })
+
+  it("空的类型数组视为写错", () => {
+    expect(paths(checkSchema({ type: [] }))).toEqual([".type"])
+  })
+
   it("报出非法 pattern", () => {
     expect(paths(checkSchema({ type: "string", pattern: "(" }))).toEqual([".pattern"])
   })
@@ -153,6 +166,22 @@ describe("validate（校验）", () => {
   it("integer 不接受小数", () => {
     expect(validate({ type: "integer" }, 1.5)).toHaveLength(1)
     expect(validate({ type: "integer" }, 2)).toEqual([])
+  })
+
+  it("接受类型数组（联合类型），命中其一即通过", () => {
+    const schema = { type: ["string", "null"] }
+    expect(validate(schema, "abc")).toEqual([])
+    expect(validate(schema, null)).toEqual([])
+    const errors = validate(schema, 1)
+    expect(errors).toHaveLength(1)
+    // 报错文案要把两个候选都写出来，否则用户不知道该改成什么
+    expect(errors[0].message).toContain("期望 string | null")
+  })
+
+  it("联合类型在数组元素上同样生效", () => {
+    const schema = { type: "array", items: { type: ["string", "number"] } }
+    expect(validate(schema, ["10001", 10002])).toEqual([])
+    expect(paths(validate(schema, ["10001", true]))).toEqual(["[1]"])
   })
 
   it("嵌套数组元素的路径带下标", () => {
