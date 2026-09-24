@@ -24,6 +24,7 @@ const CORE_MODULES = [
   "lib/config/migrate.js",
   "lib/config/diff.js",
   "lib/config/zip.js",
+  "lib/config/archive.js",
   "lib/config/migrations/*.js",
   "lib/plugins/schema.js",
   "lib/plugins/metadata.js",

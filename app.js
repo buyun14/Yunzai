@@ -1,3 +1,21 @@
+/**
+ * 打印一段文本并退出（CLI 分支共用）。
+ *
+ * 必须**等 stdout 写完**再退：管道下 stdout 是异步的，写完之前 `exit` 会把长输出
+ * 截断。反过来，光用 `write(text, () => process.exit())` 也不行——回调是异步的，
+ * 而 `break` 之后控制流会继续走到本文件底部的 `new Bot()`，于是“只读命令”
+ * 会顺手把整个 bot 启动起来（甚至因为端口被占用去挤掉运行中的实例）。
+ * `await` 是唯一能同时满足两者的写法。
+ *
+ * @param {string} text 要输出的文本
+ * @param {number} [code] 退出码
+ * @returns {Promise<void>}
+ */
+async function printAndExit(text, code = 0) {
+  await new Promise(resolve => process.stdout.write(`${text}\n`, resolve))
+  process.exit(code)
+}
+
 switch (process.env.app_type || process.argv[2]) {
   case "stop": {
     const cfg = (await import("./lib/config/config.js")).default
@@ -39,10 +57,58 @@ switch (process.env.app_type || process.argv[2]) {
     const text = formatDiff(await collectDiff(), {
       limit: process.argv.includes("--all") ? Infinity : 20,
     })
-    await new Promise(resolve => process.stdout.write(`${text}\n`, resolve))
-    process.exit()
-    // process.exit() 不返回，这个 break 不会执行；写上是为了标明分支意图，
-    // 也让 no-fallthrough 不必依赖"注释例外"才能通过（同上面的 stop 分支）。
+    await printAndExit(text)
+    // 同上：process.exit() 不返回
+    break
+  }
+  case "backup": {
+    // `node . backup [--out <path>]`：打一个可携带的逻辑包（阶段 5 §3.4）。
+    // 它不启动 bot、不碰 redis：只读项目目录，只写 --out 指定的那一个文件。
+    const { buildArchive, writeArchive } = await import("./lib/config/archive.js")
+    const { stampOf } = await import("./lib/config/backup.js")
+
+    const outIndex = process.argv.indexOf("--out")
+    const out = outIndex === -1 ? `backup-${stampOf()}.zip` : process.argv[outIndex + 1]
+    if (!out) await printAndExit("--out 后面要跟一个文件路径", 2)
+
+    const { manifest, buffer } = await buildArchive()
+    await writeArchive(out, buffer)
+
+    await printAndExit(
+      [
+        `已生成备份包：${out}`,
+        `  条目 ${manifest.entries.length} 个、插件 ${manifest.plugins} 个、配置版本 v${manifest.config_version ?? "未知"}`,
+        `  范围：${manifest.scope.join("、")}（不含 node_modules / temp / logs / redis）`,
+        "",
+        "这个包可以用系统自带工具解开查看，也可以用 node . restore <包> 还原。",
+      ].join("\n"),
+    )
+    // 同上：process.exit() 不返回
+    break
+  }
+  case "restore": {
+    // `node . restore <包>`：校验 manifest → 先给当前状态打一个包 → 解包 → 跑迁移。
+    // 迁移按**包里记录的** config_version 补跑：包可能是旧版本导出的，直接丢回
+    // 项目里等于把配置降级，迁移是唯一能把两者对齐的东西。
+    const { restoreArchive } = await import("./lib/config/archive.js")
+    const file = process.argv[3]
+    if (!file) await printAndExit("用法：node . restore <备份包路径>", 2)
+
+    const { manifest, restored, previous, migration } = await restoreArchive(file)
+
+    await printAndExit(
+      [
+        `已从 ${file} 恢复 ${restored} 个文件`,
+        `  包里记录的版本：yunzai ${manifest.yunzai_version ?? "未知"} / 配置 v${manifest.config_version ?? "未知"} / 导出时间 ${manifest.created_at}`,
+        `  恢复前的当前状态已存到：${previous}`,
+        migration && migration.applied.length
+          ? `  配置迁移：v${migration.from} → v${migration.to}（${migration.applied.length} 个脚本）`
+          : "  配置迁移：无需执行",
+        "",
+        "恢复是覆盖语义（不会删除包里没有的文件）。请重启 bot 让它生效。",
+      ].join("\n"),
+    )
+    // 同上：process.exit() 不返回
     break
   }
   case "pm2":
