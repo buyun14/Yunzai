@@ -1,0 +1,14 @@
+{
+  "post_type": "message",
+  "message_type": "group",
+  "sub_type": "normal",
+  "self_id": 12345,
+  "user_id": 10001,
+  "group_id": 67890,
+  "message_id": 1008,
+  "raw_message": "#复读",
+  "message": [{ "type": "text", "text": "#复读" }],
+  "sender": { "user_id": 10001, "nickname": "测试用户", "card": "测试用户" },
+  "group_name": "测试群",
+  "group": { "is_owner": false, "is_admin": false, "mute_left": 120, "all_muted": true }
+}

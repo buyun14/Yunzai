@@ -112,7 +112,10 @@ git -C "E:\ProjectCollection\2026_9\Work\Yunzai" diff --stat upstream/main HEAD
       - 冷启动 3.37 s / 热启动 2.56 s 到 online；插件 27 个，加载耗时 1.13 s（冷）/ 0.94 s（热）
       - `PluginsLoader.load_time` 记录的是**每个文件的加载耗时**，但它**从未被日志输出**（仅在热更新时用于保留旧值）。当前只有“加载插件[N个]”这一条汇总日志；逐插件耗时需要额外插桩，暂不做
       - 顺带产出运行期观测 O1：插件可能被重复加载（竞态），详见该文档 §3
-- [~] 录制真实消息事件样本 → **改为手工构造 fixture**（本环境无可用平台账号）。方案与理由见 [`baseline/startup.md`](./baseline/startup.md) §4，列为阶段 2 的前置任务
+- [x] 事件样本改为**手工构造 fixture**（本环境无可用平台账号）
+      - 位置：`tests/fixtures/events/`，共 14 条，覆盖 `message` / `notice` / `request` 三类与各字段边界
+      - 方案与理由见 [`baseline/startup.md`](./baseline/startup.md) §4 与 `tests/fixtures/events/README.md`
+      - 夹具：`tests/helpers/events.js`（载荷 → 可运行事件）、`tests/helpers/config.js`（配置替身，默认值照抄线上 yaml）
 - [ ] 记录插件加载失败的当前表现（`packageTips()` 的报错文案）。本次运行无失败案例，需人为构造（如临时移走某个依赖）后再记录
 
 ### 2.6 协作文档（基本完成）

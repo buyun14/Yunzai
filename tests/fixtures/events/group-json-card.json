@@ -1,0 +1,19 @@
+{
+  "post_type": "message",
+  "message_type": "group",
+  "sub_type": "normal",
+  "self_id": 12345,
+  "user_id": 10001,
+  "group_id": 67890,
+  "message_id": 1007,
+  "raw_message": "[CQ:json,data=...]",
+  "message": [
+    {
+      "type": "json",
+      "data": { "app": "com.tencent.structmsg", "desc": "测试卡片", "view": "news" }
+    }
+  ],
+  "sender": { "user_id": 10001, "nickname": "测试用户", "card": "测试用户" },
+  "group_name": "测试群",
+  "group": { "is_owner": false, "is_admin": false, "mute_left": 0, "all_muted": false }
+}

@@ -1,0 +1,12 @@
+{
+  "post_type": "notice",
+  "notice_type": "group",
+  "sub_type": "increase",
+  "self_id": 12345,
+  "user_id": 10002,
+  "group_id": 67890,
+  "message_id": 1010,
+  "group_name": "测试群",
+  "sender": { "user_id": 10002, "nickname": "新人" },
+  "group": { "is_owner": false, "is_admin": false, "mute_left": 0, "all_muted": false }
+}

@@ -1,0 +1,10 @@
+{
+  "post_type": "request",
+  "request_type": "friend",
+  "sub_type": "add",
+  "self_id": 12345,
+  "user_id": 10004,
+  "comment": "求加好友",
+  "flag": "flag-1",
+  "sender": { "user_id": 10004, "nickname": "陌生人" }
+}

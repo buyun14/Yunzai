@@ -1,0 +1,13 @@
+{
+  "post_type": "notice",
+  "notice_type": "group",
+  "sub_type": "decrease",
+  "self_id": 12345,
+  "user_id": 10003,
+  "operator_id": 10001,
+  "group_id": 67890,
+  "message_id": 1011,
+  "group_name": "测试群",
+  "sender": { "user_id": 10003, "nickname": "路人" },
+  "group": { "is_owner": false, "is_admin": false, "mute_left": 0, "all_muted": false }
+}

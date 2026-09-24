@@ -1,0 +1,18 @@
+{
+  "post_type": "message",
+  "message_type": "group",
+  "sub_type": "normal",
+  "self_id": 12345,
+  "user_id": 10001,
+  "group_id": 67890,
+  "message_id": 1012,
+  "raw_message": "#复读",
+  "message": [
+    { "type": "text", "text": "#复读 " },
+    { "type": "record", "file": "https://example.invalid/voice.silk" },
+    { "type": "poke", "id": "-1" }
+  ],
+  "sender": { "user_id": 10001, "nickname": "测试用户", "card": "测试用户" },
+  "group_name": "测试群",
+  "group": { "is_owner": false, "is_admin": false, "mute_left": 0, "all_muted": false }
+}

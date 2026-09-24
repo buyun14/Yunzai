@@ -1,0 +1,11 @@
+{
+  "post_type": "message",
+  "message_type": "private",
+  "sub_type": "friend",
+  "self_id": 12345,
+  "user_id": 10001,
+  "message_id": 1009,
+  "raw_message": "#复读",
+  "message": [{ "type": "text", "text": "#复读" }],
+  "sender": { "user_id": 10001, "nickname": "测试用户" }
+}

@@ -1,0 +1,23 @@
+{
+  "post_type": "message",
+  "message_type": "group",
+  "sub_type": "normal",
+  "self_id": 12345,
+  "user_id": 10001,
+  "group_id": 67890,
+  "message_id": 1006,
+  "raw_message": "#复读",
+  "message": [
+    { "type": "reply", "id": 999 },
+    { "type": "text", "text": "#复读" },
+    {
+      "type": "file",
+      "name": "report.txt",
+      "url": "https://example.invalid/report.txt",
+      "size": 123
+    }
+  ],
+  "sender": { "user_id": 10001, "nickname": "测试用户", "card": "测试用户" },
+  "group_name": "测试群",
+  "group": { "is_owner": false, "is_admin": false, "mute_left": 0, "all_muted": false }
+}
