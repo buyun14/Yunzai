@@ -151,6 +151,50 @@ initCfg()                    # 补齐缺失的配置文件（现有行为）
 > 改成 `await new Promise(resolve => process.stdout.write(text, resolve))` 之后再 `exit`，
 > 既不让管道截断输出，也保证进程真的结束在 switch 里。
 > 单测覆盖不到 `app.js` 的顶层控制流，这条是靠真跑发现的。
+>
+> **宿主配置 schema 化（2026-09-24 收尾）：已落地。**
+>
+> 落点是 `lib/config/host-schema.js`——**不是**本节原写的 `config/host.schema.js`。
+> 偏离理由：`config/` 整个目录在 `.gitignore` 里（只白名单了 `default_config/`），
+> 而这是一份要被测试覆盖、也要被 `vitest.config.js` 的覆盖率清单管住的**代码**，
+> 放进被忽略的目录等于它永远进不了版本库。放在 `lib/config/` 与其他配置模块同域。
+>
+> 它**只是数据**：`HOST_SCHEMAS[文件名]` 给出该 yaml 每个顶层键的类型、范围、
+> 默认值与展示提示（`title` / `description` / `x-widget`）。校验与默认值填充
+> 复用阶段 1 的 `lib/plugins/schema.js`，所以"宿主配置写得对不对"与
+> "插件配置写得对不对"是**同一套判据**。
+>
+> | 建模 | 明确不建模（`UNMODELED`，带原因） |
+> |---|---|
+> | `bot` `server` `other` `redis` `renderer` `milky` `satori`（7 个） | `group.yaml`（顶层是「Bot:群」动态键）、`db.yaml`（已废弃，BCR-0001） |
+>
+> 三个刻意的边界：
+>
+> 1. **不接管读取路径**。配置仍由 `lib/config/config.js` 从 yaml 读，优先级不变；
+>    本模块不参与任何一次运行期取值。
+> 2. **不引入 Node 专有 API**，与 `lib/plugins/schema.js` 同一条约束。
+> 3. **覆盖不到的文件显式列进 `UNMODELED` 并写明原因**，而不是默默漏掉——
+>    有一条测试检查"每个出厂 yaml 要么建模、要么在名单里"，漏一个就红。
+>
+> **为此给受控子集补了一个能力：类型数组（联合类型）。** 宿主配置里有大量
+> "要么填值、要么留空"的键（`chromium_path`、`puppeteer_timeout`、`address` …），
+> 没有联合类型就只能把它们写成单一类型、在用户留空时报错，或者干脆不建模。
+> 同时补了 `null` 作为合法类型（原先 `type: "null"` 会被误判成"不支持的 type"）。
+> 对既有插件 schema 是**纯增量**：仓库里此前没有任何 schema 用过数组写法。
+>
+> **测试（22 个新用例）里最有价值的两条**，都是防"两份手工维护的东西悄悄漂移"：
+>
+> 1. **出厂默认配置必须逐一通过自己的 schema**（填默认值后零错误）；
+> 2. **schema 声明的 `default` 必须与出厂 yaml 的值一致**。
+>
+> 第 1 条**当场就抓到一个真实的建模错误**：`other.yaml` 的
+> `blackGroup` / `blackUser` 出厂值是**数字**（`- 213938015`），而我一开始把
+> `items` 写成了 `string`。查过运行期才定下正确写法——`lib/plugins/loader.js` 用
+> `Number(e.user_id) || String(e.user_id)` 兜两种形态，阶段 2 的 `whitelist-check`
+> 走 `matchId()` 同样兼容，所以元素**应当允许 string 与 number 两者**。
+> 这正是"schema 与 yaml 是两份手工维护的东西"这个风险的实例。
+>
+> 覆盖：`lib/config/host-schema.js` 补进 `vitest.config.js` 的清单，实测 100%。
 
 ### 3.3 存储边界（KISS，不引入新数据库）
 
@@ -323,6 +367,9 @@ CLI（挂在现有 `app.js` 的 `switch (process.argv[2])` 分支上，与 `stop
 > 另有一项**不在本节验收清单里、但也没做完**：§3.2 的「宿主配置 schema 化」
 > （`config/host.schema.js`）。它唯一的下游消费者是阶段 6 的 WebUI 表单，
 > 因此与阶段 6 一起做更合理。
+> —— **已补上（2026-09-24）**：落点为 `lib/config/host-schema.js`（不是
+> `config/host.schema.js`，理由见 §3.2 的落地说明），7 个配置文件已建模，
+> 2 个明确不建模并写明原因。下游的 WebUI 表单（阶段 6 的 v2）仍待做。
 >
 > `node . config:diff` 在真实配置上的当前输出（2026-09-24 实测）：只有 `bot.yaml` 的
 > `strict_plugin_version` 待补 1 项（符合预期，阶段 1 新增的键只在默认文件里），

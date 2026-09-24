@@ -183,9 +183,15 @@ flowchart TD
       （2 个真实迁移，真实配置已在 `config_version: 2`）、§3.2 的 `config:diff`、
       §3.3 的 redis 键前缀规范（`Yz:cache:` / `Yz:persist:` + 守卫测试）、
       §3.4 的 `backup` / `restore`（自写 ZIP，外部工具验过）均已落地。
-      **未完成两项**：① `sequelize` / `sqlite3` 的删除——按 BCR-0001 等两个发布版本，刻意挂起；
-      ② §3.2 的宿主配置 schema 化（`config/host.schema.js`）——下游只有阶段 6 的 WebUI 表单，
-      与阶段 6 一起做。见 `05-persistence-config.md` §6）
+      **未完成两项**：① `sequelize` / `sqlite3` 的删除——按 BCR-0001 等两个发布版本，刻意挂起
+      （该条件目前**无法开始计时**：`git tag` 为空、版本号仍是上游的 3.1.3，重构后
+      尚未发布过任何版本）；② §3.2 的宿主配置 schema 化（`config/host.schema.js`）——下游只有阶段 6 的 WebUI 表单。
+      —— **② 已补上（2026-09-24）**：落点改为 `lib/config/host-schema.js`
+      （`config/` 被 gitignore，代码放那里进不了版本库也没法纳入覆盖率清单），
+      7 个配置文件建模、2 个明确不建模并写明原因，并为受控子集补了
+      **类型数组（联合类型）**支持；22 个新用例，其中一个当场抓出
+      `blackGroup` / `blackUser` 的元素类型被误写成 `string`（出厂值是数字，运行期两种都认）。
+      见 `05-persistence-config.md` §3.2 / §6）
 - [ ] 阶段 6：WebUI（**后端 + 前端 v1 只读面板均已落地**，详见 `06-webui.md`：
       安全基座、就绪探针、五个接口（含 SSE 日志流）、`docs/openapi.yaml` 契约与一致性测试；
       `dashboard/`（Vue 3 + Vite + Vuetify 3 + Pinia）四个页面：状态总览 / 插件列表 /

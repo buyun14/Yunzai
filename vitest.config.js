@@ -27,6 +27,9 @@ const CORE_MODULES = [
   "lib/config/zip.js",
   "lib/config/archive.js",
   "lib/config/migrations/*.js",
+  // 宿主配置的 schema 表（阶段 5 §3.2）。**纯数据 + 纯函数**，没有环境依赖，
+  // 所以整个文件都该被覆盖到——它一旦漏出清单就可能在 0% 的情况下全绿。
+  "lib/config/host-schema.js",
   "lib/plugins/schema.js",
   "lib/plugins/metadata.js",
   "lib/plugins/version.js",
@@ -66,8 +69,10 @@ export default defineConfig({
        * 阶段 5 §3.1 又把被单测覆盖的那几个 `lib/config` 文件补进来
        * （**不能整个目录加**：`config.js` / `init.js` / `redis.js` 需要真实环境，
        * 算进来只会得到一个大分母）；两次都让实测值上升。
+       * 阶段 5 §3.2 的 `host-schema.js` 是纯数据 + 纯函数，补进来后实测 100%，
+       * 整体到 95.88 / 89.19 / 96.73 / 97.30。
        * 各目录自己的实测：`lib/message` 100 / 96.61 / 100 / 100，
-       * `lib/adapter` 97.43 / 92.85 / 100 / 96.77，`lib/config` 97.60 / 91.89 / 100 / 98.67。
+       * `lib/adapter` 97.43 / 92.85 / 100 / 96.77，`lib/config` 96.36 / 88.13 / 100 / 96.87。
        */
       thresholds: {
         statements: 93,
