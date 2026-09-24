@@ -126,9 +126,10 @@ export class status extends plugin {
         i.key += `:${i.id}`
       }
       msg += `\n\n${i.text}`
-      for (let d of date) {
-        const key = `:${cmd["消息"]}:${i.key}:${d.join(":")}`
-        d = d.join("-")
+      // 同上：`d` 原本先当日期数组（要 join 两次）再当字符串，拆成两个名字
+      for (const parts of date) {
+        const key = `:${cmd["消息"]}:${i.key}:${parts.join(":")}`
+        let d = parts.join("-")
         if (d == "total") d = `总计 -------`
         else d = `${d} ${"-".repeat(11 - d.length)}`
         const ret = await this.redis(i.type, key)

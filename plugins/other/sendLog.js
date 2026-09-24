@@ -52,8 +52,10 @@ export class sendLog extends plugin {
   }
 
   async getLog(logFile) {
-    let log = await fs.readFile(logFile, "utf8")
-    log = log.split("\n")
+    // 拆成两个名字：原写法把同一个 `log` 先当字符串再当数组，类型上对不上
+    // （本文件 5 处报错都出自这里）。语义完全不变。
+    const raw = await fs.readFile(logFile, "utf8")
+    let log = raw.split("\n")
 
     if (this.keyWord) {
       for (const i in log) if (!log[i].includes(this.keyWord)) delete log[i]
