@@ -10,6 +10,28 @@ Bot.adapter.push(
     echo = new Map()
     timeout = 60000
 
+    /**
+     * 能力声明（阶段 4 v3）。
+     *
+     * 逐条对着本文件的实际实现写的：`forward` 对应本类的 `makeForwardMsg` /
+     * `sendGroupForwardMsg`；`record` / `video` / `json` 是段直接透传给 OneBot API
+     * （`makeMsg` 不拦）；`poke` / `markdown` 协议里没有对应的发接口，所以是 `false`。
+     *
+     * 消费方必须区分 `false` 与“未知”：本表只用于降级提示，不得用来决定是否发送。
+     */
+    capabilities = {
+      text: true,
+      image: true,
+      at: true,
+      reply: true,
+      record: true,
+      video: true,
+      forward: true,
+      poke: false,
+      json: true,
+      markdown: false,
+    }
+
     makeLog(msg) {
       return Bot.String(msg).replace(/base64:\/\/.*?(,|]|")/g, "base64://...$1")
     }

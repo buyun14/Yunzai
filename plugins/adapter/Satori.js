@@ -12,6 +12,28 @@ Bot.adapter.push(
     sessionSn = 0
     ws = null
     heartbeatTimer = null
+
+    /**
+     * 能力声明（阶段 4 v3）。
+     *
+     * 逐条对着本文件的元素映射写的：`record` / `video` / `forward` 分别对应
+     * `<audio>` / `<video>` / `<message forward>`；`poke` / `markdown` 没有对应元素，
+     * 所以是 `false`。
+     *
+     * 消费方必须区分 `false` 与“未知”：本表只用于降级提示，不得用来决定是否发送。
+     */
+    capabilities = {
+      text: true,
+      image: true,
+      at: true,
+      reply: true,
+      record: true,
+      video: true,
+      forward: true,
+      poke: false,
+      json: true,
+      markdown: false,
+    }
     reconnectTimer = null
 
     load() {
