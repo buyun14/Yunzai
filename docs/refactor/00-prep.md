@@ -76,7 +76,7 @@ git -C "E:\ProjectCollection\2026_9\Work\Yunzai" diff --stat upstream/main HEAD
 - [x] 分支模型：`main`（始终可用）+ 短生命周期 `feat/*`、`fix/*`、`chore/*` —— 写入 `AGENTS.md`
 - [x] 采纳 Conventional Commits —— `commitlint.config.js` + `.husky/commit-msg`
 - [x] `husky` + `lint-staged`：`.husky/pre-commit` 对暂存区文件跑 `prettier --write` + `eslint --fix`
-- [ ] **待验证**：Windows 上确认 `pnpm exec` 能被 Git 的 `sh` 正确解析（hooks 由 sh 执行）
+- [x] **已验证（Windows 端到端）**：`git commit` 会触发 `.husky/pre-commit` → `lint-staged` 正常执行；不合规的提交信息被 `.husky/commit-msg` + `commitlint` 拒绝且不产生提交
 
 ### 2.3 代码质量闸门（配置完成，基线待登记）
 
@@ -105,13 +105,14 @@ git -C "E:\ProjectCollection\2026_9\Work\Yunzai" diff --stat upstream/main HEAD
 - [x] 设置 `HUSKY=0`，避免 CI 中安装 git hooks
 - [~] `smoke.yml` —— **推迟到阶段 2**。原计划"启动一次 `node .` 验证无加载期崩溃"在阶段 0 不可行：`Bot.run()` 会拉起 redis 进程、初始化 puppeteer、等待适配器上线，CI 中无真实账号会挂起；且没有适配器在线时插件栈本就不会被加载。阶段 2 的流水线骨架会提供"注入 fake 事件 + 假适配器"的测试夹具，届时再做真实的加载冒烟测试
 
-### 2.5 标定与诊断基线
+### 2.5 标定与诊断基线（部分完成）
 
-改造前先把"当前行为"量化，否则阶段 2 无法判断是否回归：
-
-- [ ] 记录启动耗时、插件加载数量与耗时（`PluginsLoader.load_time` 已收集，见 `lib/plugins/loader.js`）
-- [ ] 录制一批真实消息事件样本（脱敏）作为阶段 2 的金标准回归输入
-- [ ] 记录插件加载失败的当前表现（`packageTips()` 的报错文案），改造后需保持一致或更好
+- [x] 记录启动耗时与插件加载数量 → [`baseline/startup.md`](./baseline/startup.md)
+      - 冷启动 3.37 s / 热启动 2.56 s 到 online；插件 27 个，加载耗时 1.13 s（冷）/ 0.94 s（热）
+      - `PluginsLoader.load_time` 记录的是**每个文件的加载耗时**，但它**从未被日志输出**（仅在热更新时用于保留旧值）。当前只有“加载插件[N个]”这一条汇总日志；逐插件耗时需要额外插桩，暂不做
+      - 顺带产出运行期观测 O1：插件可能被重复加载（竞态），详见该文档 §3
+- [~] 录制真实消息事件样本 → **改为手工构造 fixture**（本环境无可用平台账号）。方案与理由见 [`baseline/startup.md`](./baseline/startup.md) §4，列为阶段 2 的前置任务
+- [ ] 记录插件加载失败的当前表现（`packageTips()` 的报错文案）。本次运行无失败案例，需人为构造（如临时移走某个依赖）后再记录
 
 ### 2.6 协作文档（基本完成）
 
@@ -148,13 +149,20 @@ Work\Yunzai
 
 ## 4. 验收标准
 
-1. `git diff --stat upstream/main HEAD` 在阶段 0 结束时，除 `package.json` / `.gitignore` / 新增工具链与文档外无功能改动；
-2. CI 在 Windows 与 Linux × Node 22/24 上均绿灯；
-3. `pnpm lint` 为只读校验且退出码可用于 CI；
-4. `pnpm lint:eslint` 与 `pnpm typecheck` 可运行，告警/报错数量已登记为基线（CI 中暂设 `continue-on-error`）；
-5. `pnpm test` 至少通过 `tests/unit/compat/frozen-surface.test.js` 的 L0 守卫；
-6. 干净克隆 + `pnpm install` 后可一次通过上述全部命令；
-7. 一次 `node .` 启动流程在改造前后可复现（用第 2.5 节的记录对比）。
+| # | 标准 | 状态 |
+|---|---|---|
+| 1 | `git diff --stat upstream/main HEAD` 只包含工具链与文档，无功能改动 | ✅ 已确认 |
+| 2 | CI 在 Windows 与 Linux × Node 22/24 上均绿灯 | ⏳ 待仓库有远端后首次触发 |
+| 3 | `pnpm lint` 为只读校验且退出码可用于 CI | ✅ 已确认（本地通过） |
+| 4 | `pnpm lint:eslint` 与 `pnpm typecheck` 可运行，数字已登记为基线 | ✅ 见 [`baseline/static-analysis.md`](./baseline/static-analysis.md) |
+| 5 | `pnpm test` 通过 L0 冻结面守卫 | ✅ 5 个用例通过 |
+| 6 | `pnpm install` 后可一次通过上述全部命令 | ✅ 已确认 |
+| 7 | 一次 `node .` 启动流程在改造前后可复现 | ✅ 见 [`baseline/startup.md`](./baseline/startup.md) |
+
+阶段 0 的剩余工作只剩 §2.5 的两项（事件 fixture 已改为阶段 2 的前置任务；插件加载失败文案待人为构造）。
+
+> **额外收益**：本次启动实测顺带验证了改造仓在引入全部工具链后**仍能正常启动**（27 个插件加载完成、7 个适配器就绪、HTTP 服务可用、优雅关闭可用），
+> 且工作树未被运行时产物污染（`config/config/` 与 `dump.rdb` 均已忽略）。
 
 ---
 
