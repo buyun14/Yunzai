@@ -212,6 +212,81 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
+    put:
+      tags: [配置]
+      summary: 写入单个配置文件
+      description: |-
+        **整个 WebUI 里唯一会改宿主状态的接口。** 对应 `docs/refactor/06-webui.md`
+        §3.5 的 v2 第二步。
+
+        ## 四道闸门（任何一道不过都不写盘）
+        1. 文件名过白名单（同 `GET`）；2. 该文件**已建模**（在
+        `lib/config/host-schema.js` 里）；3. 请求体**不含敏感键**；4. 新值过该文件的
+        schema 校验。顺序是刻意的：先拒签再校验，不给不允许写的文件做无用功。
+
+        ## 敏感键为什么封死
+        `server.yaml` 的 `auth` 与 `https` **不允许**通过面板修改：
+        前者是面板自己的鉴权（能改它 = 能把令牌换成自己知道的值，
+        或者把所有人锁在外面），后者是监听与证书配置（写错则重启起不来）。
+        与 §3.3「启用 WebUI 必须配 auth」同一条思路：**面板不该有能力削弱自己的门卫**。
+        要改就手动改 yaml。提交这两个键会得到 400。
+
+        ## 未建模的文件
+        `group.yaml`（顶层是动态键）与 `db.yaml`（已废弃）不通过 API 写，
+        同样 400——面板表达不了它们的结构，硬写只会覆盖掉用户手写的段。
+
+        ## 手滑保护
+        请求体必须带 `confirmed: true`，否则 428。改写配置是不可逆的运维动作。
+
+        ## 原子写与写前备份
+        先写同目录临时文件再 `rename` 覆盖，所以目标文件**要么是旧内容、
+        要么是新内容**，不会半截（半截的 yaml 会让下次启动解析失败）。
+        原文件会先复制到 `config/backups/pre-write-<时间戳>-<文件名>`，
+        目标已存在时加后缀、**绝不覆盖**。备份路径在响应里回传。
+
+        ## 写入后不会立即生效
+        配置是启动期一次性读进内存的，写盘**不影响正在运行的进程**，
+        所以响应恒带 `restartRequired: true`。刻意不做热重载：绝大多数键
+        （端口、监听地址、数据库路径）本来就热改不了，为每个键定义"能不能热改"
+        的收益远小于成本。
+      operationId: configWrite
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: 同 `GET /api/v1/config/{name}` 的白名单
+          schema:
+            type: string
+            pattern: "^[\\w.-]+\\.ya?ml$"
+            examples: [bot.yaml, server.yaml]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigWriteRequest"
+      responses:
+        "200":
+          description: 已写入
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigWriteResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "428":
+          description: |-
+            缺少 `confirmed: true`。改写配置是不可逆的运维动作，
+            刻意不复用 400：客户端据此能区分"参数写错了"与"还没确认"。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
   /api/v1/logs:
     get:
       tags: [日志]
@@ -604,3 +679,41 @@ components:
               reason:
                 type: string
                 description: 为什么这个文件不用 schema 表达（如"顶层是动态键，受控子集表达不了"）
+
+    ConfigWriteRequest:
+      type: object
+      required: [config, confirmed]
+      properties:
+        config:
+          type: object
+          description: |-
+            要写进去的键值。**只提交想改的键**——处理器是"逐个 set"，不是整体替换，
+            所以没提交的键在文件里原样保留（包括用户手写的注释）。
+
+            会按该文件的 schema 校验；校验**不填默认值**：把没提交的键补成默认值
+            等于替用户隐式改写他没碰过的字段。
+          additionalProperties: true
+        confirmed:
+          type: boolean
+          const: true
+          description: 必须显式为 true，否则 428
+
+    ConfigWriteResult:
+      type: object
+      required: [name, written, backup, restartRequired]
+      properties:
+        name:
+          type: string
+        written:
+          type: boolean
+          const: true
+          description: "恒为 true——失败会走 4xx/5xx，不会返回 written: false"
+        backup:
+          type: [string, "null"]
+          description: 写前备份的路径；原文件不存在时为 null（没有东西可备份）
+        restartRequired:
+          type: boolean
+          const: true
+          description: |-
+            恒为 true：配置是启动期读进内存的，写盘不影响正在运行的进程。
+            界面据此提示用户去重启。

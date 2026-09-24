@@ -3,6 +3,7 @@ import os from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { createConfigHandler, maskSecrets } from "../../../lib/web/api/config.js"
+import { createConfigWriteHandler } from "../../../lib/web/api/config-write.js"
 import { createPluginsHandler } from "../../../lib/web/api/plugins.js"
 import { createSchemasHandler } from "../../../lib/web/api/schemas.js"
 import { createStatusHandler } from "../../../lib/web/api/status.js"
@@ -67,17 +68,21 @@ async function call(handler, req = {}) {
 }
 
 /**
- * 造一个临时配置目录对。
+ * 造一个临时配置目录对（外加写前备份目录）。
+ *
+ * `backupDir` 必须一起给出：写入接口在没注入它时会回退到**仓库里真实的**
+ * `config/backups/`，那样测试就会往工作区里拉屎（实测踩过）。
  *
  * @param {Record<string, string>} userFiles 用户侧文件
  * @param {Record<string, string>} defaultFiles 默认侧文件
- * @returns {Promise<{ configDir: string, defaultsDir: string }>} 目录
+ * @returns {Promise<{ configDir: string, defaultsDir: string, backupDir: string }>} 目录
  */
 async function makeConfigDirs(userFiles, defaultFiles) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "yz-web-config-"))
   temps.push(root)
   const configDir = path.join(root, "config")
   const defaultsDir = path.join(root, "default_config")
+  const backupDir = path.join(root, "backups")
   for (const [dir, files] of [
     [configDir, userFiles],
     [defaultsDir, defaultFiles],
@@ -86,7 +91,7 @@ async function makeConfigDirs(userFiles, defaultFiles) {
     for (const [name, text] of Object.entries(files))
       await fs.writeFile(path.join(dir, name), text, "utf8")
   }
-  return { configDir, defaultsDir }
+  return { configDir, defaultsDir, backupDir }
 }
 
 describe("GET /status", () => {
@@ -288,6 +293,217 @@ describe("GET /config/schemas", () => {
     first.json.schemas["bot.yaml"].title = "被改过"
     const second = await call(createSchemasHandler(), {})
     expect(second.json.schemas["bot.yaml"].title).toBe("行为与日志")
+  })
+})
+
+describe("PUT /config/{name}", () => {
+  it("写入成功：返回 name / written / backup / restartRequired", async () => {
+    const dirs = await makeConfigDirs({ "bot.yaml": "log_level: info\n" }, {})
+    const { status, json } = await call(createConfigWriteHandler(dirs), {
+      params: { name: "bot.yaml" },
+      body: { config: { log_level: "debug" }, confirmed: true },
+    })
+
+    expect(status).toBe(200)
+    expect(json.name).toBe("bot.yaml")
+    expect(json.written).toBe(true)
+    expect(json.restartRequired).toBe(true)
+    expect(json.backup).toBeTruthy()
+
+    const written = await fs.readFile(path.join(dirs.configDir, "bot.yaml"), "utf8")
+    expect(written).toContain("debug")
+  })
+
+  it("保留注释：改一个键不会把文件里的注释洗掉", async () => {
+    const original = "# 日志等级，别乱改\nlog_level: info\n# 下面这行是端口\nport: 2536\n"
+    const dirs = await makeConfigDirs({ "bot.yaml": original }, {})
+
+    await call(createConfigWriteHandler(dirs), {
+      params: { name: "bot.yaml" },
+      body: { config: { log_level: "warn" }, confirmed: true },
+    })
+
+    const written = await fs.readFile(path.join(dirs.configDir, "bot.yaml"), "utf8")
+    expect(written).toContain("# 日志等级，别乱改")
+    expect(written).toContain("# 下面这行是端口")
+    // 没提交的键原样保留（是"逐个 set"，不是整体替换）
+    expect(written).toContain("port: 2536")
+    expect(written).toContain("warn")
+  })
+
+  it("写前备份保留了原内容，且不覆盖已有备份", async () => {
+    const dirs = await makeConfigDirs({ "bot.yaml": "log_level: info\n" }, {})
+    const handler = createConfigWriteHandler(dirs)
+
+    const first = await call(handler, {
+      params: { name: "bot.yaml" },
+      body: { config: { log_level: "debug" }, confirmed: true },
+    })
+    await fs.writeFile(path.join(dirs.configDir, "bot.yaml"), "log_level: warn\n", "utf8")
+    const second = await call(handler, {
+      params: { name: "bot.yaml" },
+      body: { config: { log_level: "error" }, confirmed: true },
+    })
+
+    // 两次备份必须都能找到，且各自是当时的原内容
+    const backups = await fs.readdir(dirs.backupDir)
+    expect(backups.length).toBeGreaterThanOrEqual(2)
+    expect(await fs.readFile(first.json.backup, "utf8")).toBe("log_level: info\n")
+    expect(await fs.readFile(second.json.backup, "utf8")).toBe("log_level: warn\n")
+    expect(first.json.backup).not.toBe(second.json.backup)
+  })
+
+  it("填上空键时不会把「下一行的注释」拽成行尾注释", async () => {
+    // 出厂配置里空键很多（username / password / chromium_path …），而"把空键填上值"
+    // 正是这个接口的主要用途。yaml 的 loader 会把空标量后面那行注释记成**它的**
+    // 尾注释，一旦填上值就渲染成 `username: root # 密码`——注释归属错了，
+    // 且是被我们的写入触发的。这条用例盯的就是这个。
+    const original = "# 用户名\nusername:\n# 密码\npassword:\n# 数据库\ndb: 0\n"
+    const dirs = await makeConfigDirs({ "redis.yaml": original }, {})
+
+    const { status } = await call(createConfigWriteHandler(dirs), {
+      params: { name: "redis.yaml" },
+      body: { config: { username: "root" }, confirmed: true },
+    })
+    expect(status).toBe(200)
+
+    const written = await fs.readFile(path.join(dirs.configDir, "redis.yaml"), "utf8")
+    expect(written).toContain("username: root")
+    // 关键断言：注释必须还在**自己那一行**，没有被挂到 username 后面
+    expect(written).not.toContain("root # 密码")
+    expect(written).toMatch(/# 密码\npassword:/)
+    expect(written).toMatch(/# 用户名\nusername: root/)
+    // 也不该因为搬注释而多出空行
+    expect(written).not.toMatch(/\n\n/)
+  })
+
+  it("不改任何键时注释原样保留（round-trip 稳定）", async () => {
+    const original = "# 用户名\nusername:\n# 密码\npassword:\n# 数据库\ndb: 0\n"
+    const dirs = await makeConfigDirs({ "redis.yaml": original }, {})
+
+    // 提交一个与现值相同的值：内容本身不变，注释也不该被搅动
+    await call(createConfigWriteHandler(dirs), {
+      params: { name: "redis.yaml" },
+      body: { config: { db: 0 }, confirmed: true },
+    })
+
+    const written = await fs.readFile(path.join(dirs.configDir, "redis.yaml"), "utf8")
+    expect(written).toBe(original)
+  })
+
+  it("拒绝未建模的文件（group.yaml / db.yaml），并说明原因", async () => {
+    const dirs = await makeConfigDirs({ "group.yaml": "default:\n  groupCD: 500\n" }, {})
+    const handler = createConfigWriteHandler(dirs)
+
+    for (const name of ["group.yaml", "db.yaml"]) {
+      const { status, json } = await call(handler, {
+        params: { name },
+        body: { config: {}, confirmed: true },
+      })
+      expect(status, `${name} 不该允许写入`).toBe(400)
+      expect(json.message).toContain("未建模")
+      // 必须告诉用户"那你去改哪里"
+      expect(json.message).toContain("config/config/")
+    }
+  })
+
+  it("封死敏感键：server.yaml 的 auth / https 一律拒绝", async () => {
+    const dirs = await makeConfigDirs({ "server.yaml": "port: 2536\n" }, {})
+    const handler = createConfigWriteHandler(dirs)
+
+    for (const key of ["auth", "https"]) {
+      const { status, json } = await call(handler, {
+        params: { name: "server.yaml" },
+        body: { config: { [key]: { Authorization: "x" } }, confirmed: true },
+      })
+      expect(status, `${key} 不该允许通过面板改`).toBe(400)
+      expect(json.message).toContain(key)
+      expect(json.message).toContain("鉴权与监听")
+    }
+
+    // 同一文件里**非敏感**的键照常可改（封的是键，不是整个文件）
+    const ok = await call(handler, {
+      params: { name: "server.yaml" },
+      body: { config: { port: 3000 }, confirmed: true },
+    })
+    expect(ok.status).toBe(200)
+  })
+
+  it("校验不过就不写盘（值非法 + 未知键的类型检查）", async () => {
+    const dirs = await makeConfigDirs({ "bot.yaml": "log_level: info\n" }, {})
+    const before = await fs.readFile(path.join(dirs.configDir, "bot.yaml"), "utf8")
+
+    const { status, json } = await call(createConfigWriteHandler(dirs), {
+      params: { name: "bot.yaml" },
+      body: { config: { log_level: "verbose" }, confirmed: true },
+    })
+
+    expect(status).toBe(400)
+    expect(json.code).toBe("bad_request")
+    expect(json.message).toContain("配置校验失败")
+    expect(json.errors[0].path).toBe("log_level")
+    // 校验失败必须**一个字节都不写**
+    expect(await fs.readFile(path.join(dirs.configDir, "bot.yaml"), "utf8")).toBe(before)
+  })
+
+  it("缺少 confirmed 时返回 428，且不写盘", async () => {
+    const dirs = await makeConfigDirs({ "bot.yaml": "log_level: info\n" }, {})
+    const before = await fs.readFile(path.join(dirs.configDir, "bot.yaml"), "utf8")
+
+    const { status, json } = await call(createConfigWriteHandler(dirs), {
+      params: { name: "bot.yaml" },
+      body: { config: { log_level: "debug" } },
+    })
+
+    expect(status).toBe(428)
+    expect(json.code).toBe("confirm_required")
+    expect(await fs.readFile(path.join(dirs.configDir, "bot.yaml"), "utf8")).toBe(before)
+  })
+
+  it("文件名过不了白名单时返回 400（路径穿越不可能通过）", async () => {
+    const dirs = await makeConfigDirs({}, {})
+    const handler = createConfigWriteHandler(dirs)
+
+    for (const file of ["../package.json", "a/b.yaml", "..\\b.yaml", "bot.txt"]) {
+      const { status } = await call(handler, {
+        params: { name: file },
+        body: { config: {}, confirmed: true },
+      })
+      expect(status, `${file} 应该被拒`).toBe(400)
+    }
+  })
+
+  it("请求体不是对象、或 config 不是对象时返回 400", async () => {
+    const dirs = await makeConfigDirs({ "bot.yaml": "log_level: info\n" }, {})
+    const handler = createConfigWriteHandler(dirs)
+
+    for (const body of [undefined, null, "x", [], { confirmed: true, config: "x" }]) {
+      const { status } = await call(handler, { params: { name: "bot.yaml" }, body })
+      expect(status, `body=${JSON.stringify(body)} 应该被拒`).toBe(400)
+    }
+  })
+
+  it("目标文件不存在时也能写（backup 为 null），不会因为没东西备份而失败", async () => {
+    const dirs = await makeConfigDirs({}, {})
+    const { status, json } = await call(createConfigWriteHandler(dirs), {
+      params: { name: "bot.yaml" },
+      body: { config: { log_level: "debug" }, confirmed: true },
+    })
+
+    expect(status).toBe(200)
+    expect(json.backup).toBeNull()
+    expect(await fs.readFile(path.join(dirs.configDir, "bot.yaml"), "utf8")).toContain("debug")
+  })
+
+  it("现有文件不是合法 YAML 时拒绝改写（先让用户修好）", async () => {
+    const dirs = await makeConfigDirs({ "bot.yaml": "log_level: [未闭合\n" }, {})
+    const { status, json } = await call(createConfigWriteHandler(dirs), {
+      params: { name: "bot.yaml" },
+      body: { config: { log_level: "debug" }, confirmed: true },
+    })
+
+    expect(status).toBe(400)
+    expect(json.message).toContain("不是合法 YAML")
   })
 })
 

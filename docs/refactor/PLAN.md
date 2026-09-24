@@ -202,7 +202,8 @@ flowchart TD
       同期按 **BCR-0003** 删掉了 `server.redirect` 与「未命中路径 302 跳到框架作者仓库」的
       兜底行为（改为 404 JSON），并清掉 `process.title` 的作者/©、启动横幅里的作者仓库地址、
       两处 `----^_^----` 颜文字标记。
-      **未完成**：v2 配置编辑（**schema 表与 schema 只读端点已落地**
-      —— `lib/config/host-schema.js` + `GET /api/v1/config/schemas`；
-      还差写入端点与前端表单）与 v3 插件页面，见 `06-webui.md` §7.6）
+      **未完成**：v2 配置编辑的**前端表单**（后端三步已齐：schema 表
+      `lib/config/host-schema.js`、schema 只读端点 `GET /api/v1/config/schemas`、
+      写入端点 `PUT /api/v1/config/{name}`（原子写 + 写前备份 + 四道闸门，
+      登记为 BCR-0004））；以及 v3 插件页面，见 `06-webui.md` §7.6）
 - [ ] 阶段 7：AI 能力（按需）

@@ -4,6 +4,7 @@ import path from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import YAML from "yaml"
 import { createConfigHandler } from "../../../lib/web/api/config.js"
+import { createConfigWriteHandler } from "../../../lib/web/api/config-write.js"
 import { createPluginsHandler } from "../../../lib/web/api/plugins.js"
 import { createApiRouter, createReadyHandler } from "../../../lib/web/api/router.js"
 import { createSchemasHandler } from "../../../lib/web/api/schemas.js"
@@ -29,6 +30,9 @@ const SPEC_FILE = new URL("../../../docs/openapi.yaml", import.meta.url)
 /** 临时配置目录（给 `/api/v1/config/{name}` 的取样用），跑完删掉 */
 let configDirs
 
+/** 写入接口专用的临时目录：PUT 会真的改文件，不能和只读取样共用 */
+let writeDirs
+
 beforeAll(async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "yz-openapi-"))
   configDirs = { configDir: path.join(root, "config"), defaultsDir: path.join(root, "defaults") }
@@ -36,10 +40,19 @@ beforeAll(async () => {
   await fs.mkdir(configDirs.defaultsDir, { recursive: true })
   await fs.writeFile(path.join(configDirs.configDir, "bot.yaml"), "log_level: info\n", "utf8")
   await fs.writeFile(path.join(configDirs.defaultsDir, "bot.yaml"), "log_level: info\n", "utf8")
+
+  const writeRoot = await fs.mkdtemp(path.join(os.tmpdir(), "yz-openapi-write-"))
+  writeDirs = {
+    configDir: path.join(writeRoot, "config"),
+    backupDir: path.join(writeRoot, "backups"),
+  }
+  await fs.mkdir(writeDirs.configDir, { recursive: true })
+  await fs.writeFile(path.join(writeDirs.configDir, "bot.yaml"), "log_level: info\n", "utf8")
 })
 
 afterAll(async () => {
-  if (configDirs) await fs.rm(path.dirname(configDirs.configDir), { recursive: true, force: true })
+  for (const dir of [configDirs?.configDir, writeDirs?.configDir])
+    if (dir) await fs.rm(path.dirname(dir), { recursive: true, force: true })
 })
 
 /** 读契约文件 */
@@ -50,6 +63,11 @@ async function readSpec() {
 /**
  * 列出路由器上真正注册的 `路径 → 方法`。
  *
+ * 同一个路径可以注册多个方法（`/config/:name` 就是 GET + PUT），
+ * 所以这里要把同路径的多个 layer **合并**而不是让后者覆盖前者——
+ * 覆盖掉的话契约里写了两个方法就会与路由"看起来不一致"，
+ * 而真正的问题（漏了一个方法）反而被掩盖。
+ *
  * @param {import("express").Router} router 路由器
  * @returns {Record<string, string[]>} 路径 → 小写方法名
  */
@@ -58,9 +76,10 @@ function routesOf(router) {
   const routes = {}
   for (const layer of router.stack) {
     if (!layer.route) continue
-    routes[layer.route.path] = Object.keys(layer.route.methods)
-      .map(method => method.toLowerCase())
-      .sort()
+    const methods = Object.keys(layer.route.methods).map(method => method.toLowerCase())
+    routes[layer.route.path] = [
+      ...new Set([...(routes[layer.route.path] ?? []), ...methods]),
+    ].sort()
   }
   return routes
 }
@@ -166,6 +185,14 @@ function samplers() {
     "/api/v1/config/schemas": () => bodyOf(createSchemasHandler()),
     "/api/v1/config/{name}": () =>
       bodyOf(createConfigHandler(configDirs), { params: { name: "bot.yaml" }, query: {} }),
+    // 写入接口。带 `#put` 后缀是为了与上面那条同路径的 GET 区分开——
+    // `Object.entries` 的键必须唯一，而这两者的响应体 schema 不同。
+    "/api/v1/config/{name}#put": () =>
+      bodyOf(createConfigWriteHandler(writeDirs), {
+        params: { name: "bot.yaml" },
+        query: {},
+        body: { config: { log_level: "info" }, confirmed: true },
+      }),
   }
 }
 
@@ -222,11 +249,12 @@ describe("契约与路由一致", () => {
       "/status": ["get"],
       "/plugins": ["get"],
       "/config": ["get"],
-      // ⚠️ 顺序有意义：它必须排在 `/config/:name` 之前，否则 `schemas` 会被
-      // 当成文件名匹配进 `:name`。这里断言的是**集合**，顺序由
-      // `api.test.js` 里那条"schemas 不会被当成文件名"的用例守着
+      // ⚠️ 顺序有意义：`/config/schemas` 必须排在 `/config/:name` 之前，
+      // 否则 `schemas` 会被当成文件名匹配进 `:name`（实证见 06-webui.md §4）。
+      // 这里断言的是**集合**，顺序由 `server.test.js` 里那条真实 HTTP 用例守着
       "/config/schemas": ["get"],
-      "/config/:name": ["get"],
+      // 同路径两个方法：GET 读、PUT 写
+      "/config/:name": ["get", "put"],
       "/logs": ["get"],
     })
   })
@@ -249,6 +277,8 @@ describe("契约与响应体一致", () => {
     const spec = await readSpec()
 
     for (const [routePath, sample] of Object.entries(samplers())) {
+      // `#put` 的取样归 PUT 那条用例管（响应体 schema 不同）
+      if (routePath.includes("#")) continue
       const schema = spec.paths[routePath].get.responses["200"].content["application/json"].schema
       const properties = spec.components.schemas[schema.$ref.split("/").pop()].properties
       const body = await sample()
@@ -259,6 +289,17 @@ describe("契约与响应体一致", () => {
         Object.keys(properties).sort(),
       )
     }
+  })
+
+  it("写入接口（PUT）的 200 响应体与 ConfigWriteResult 一致", async () => {
+    const spec = await readSpec()
+    const schema =
+      spec.paths["/api/v1/config/{name}"].put.responses["200"].content["application/json"].schema
+    expect(schema.$ref).toBe("#/components/schemas/ConfigWriteResult")
+
+    const body = await samplers()["/api/v1/config/{name}#put"]()
+    const properties = spec.components.schemas.ConfigWriteResult.properties
+    expect(Object.keys(body).sort()).toEqual(Object.keys(properties).sort())
   })
 
   it("嵌套对象同样逐字段核对", async () => {
