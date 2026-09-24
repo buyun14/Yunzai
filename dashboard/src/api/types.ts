@@ -203,3 +203,22 @@ export interface ConfigWriteResult {
   /** 恒为 true：配置是启动期读进内存的，写盘不影响正在运行的进程 */
   restartRequired: true
 }
+
+/* ------------------------------------------------------------------ *
+ *  进程控制（v3）
+ * ------------------------------------------------------------------ */
+
+/** `GET /api/v1/control` 的响应 */
+export interface ControlCapabilities {
+  /** 当前来源是否被允许执行重启/停止（公网来源是 false） */
+  canControl: boolean
+  /** 停止之后能不能自动恢复。恒为 false——界面据此加二次确认 */
+  stopIsRecoverable: boolean
+}
+
+/** `POST /api/v1/control/{restart,stop}` 的响应 */
+export interface ControlAccepted {
+  code: "accepted"
+  action: "restart" | "stop"
+  message: string
+}

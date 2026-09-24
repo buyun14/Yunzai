@@ -5,6 +5,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import YAML from "yaml"
 import { createConfigHandler } from "../../../lib/web/api/config.js"
 import { createConfigWriteHandler } from "../../../lib/web/api/config-write.js"
+import {
+  createControlCapabilitiesHandler,
+  createRestartHandler,
+} from "../../../lib/web/api/control.js"
 import { createPluginsHandler } from "../../../lib/web/api/plugins.js"
 import { createApiRouter, createReadyHandler } from "../../../lib/web/api/router.js"
 import { createSchemasHandler } from "../../../lib/web/api/schemas.js"
@@ -193,6 +197,20 @@ function samplers() {
         query: {},
         body: { config: { log_level: "info" }, confirmed: true },
       }),
+    // 控制接口。来源必须是内网地址，否则 `canControl` 为 false
+    "/api/v1/control": () =>
+      bodyOf(createControlCapabilitiesHandler(), {
+        params: {},
+        query: {},
+        socket: { remoteAddress: "127.0.0.1" },
+      }),
+    // 用很长的 delay：这一步只取样响应体，**不能真的重启测试进程**
+    "/api/v1/control/restart#post": () =>
+      bodyOf(createRestartHandler({ hostOf: () => ({}), delay: 60_000 }), {
+        params: {},
+        query: {},
+        socket: { remoteAddress: "127.0.0.1" },
+      }),
   }
 }
 
@@ -256,6 +274,10 @@ describe("契约与路由一致", () => {
       // 同路径两个方法：GET 读、PUT 写
       "/config/:name": ["get", "put"],
       "/logs": ["get"],
+      // 进程控制（v3）。`/control` 是能力探测，两个动作是 POST
+      "/control": ["get"],
+      "/control/restart": ["post"],
+      "/control/stop": ["post"],
     })
   })
 
@@ -300,6 +322,31 @@ describe("契约与响应体一致", () => {
     const body = await samplers()["/api/v1/config/{name}#put"]()
     const properties = spec.components.schemas.ConfigWriteResult.properties
     expect(Object.keys(body).sort()).toEqual(Object.keys(properties).sort())
+  })
+
+  it("控制接口的响应体与契约一致（能力是 200、动作是 202）", async () => {
+    const spec = await readSpec()
+    const sample = samplers()
+
+    // GET /control → 200 ControlCapabilities
+    const capabilitiesBody = await sample["/api/v1/control"]()
+    const capabilitiesRef =
+      spec.paths["/api/v1/control"].get.responses["200"].content["application/json"].schema.$ref
+    expect(capabilitiesRef).toBe("#/components/schemas/ControlCapabilities")
+    expect(Object.keys(capabilitiesBody).sort()).toEqual(
+      Object.keys(spec.components.schemas.ControlCapabilities.properties).sort(),
+    )
+
+    // POST /control/restart → **202**（不是 200）：进程随后就退出、连接会断，
+    // 所以后端先把"已受理"发出来
+    const acceptedBody = await sample["/api/v1/control/restart#post"]()
+    const acceptedRef =
+      spec.paths["/api/v1/control/restart"].post.responses["202"].content["application/json"].schema
+        .$ref
+    expect(acceptedRef).toBe("#/components/schemas/ControlAccepted")
+    expect(Object.keys(acceptedBody).sort()).toEqual(
+      Object.keys(spec.components.schemas.ControlAccepted.properties).sort(),
+    )
   })
 
   it("嵌套对象同样逐字段核对", async () => {

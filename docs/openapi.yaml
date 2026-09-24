@@ -287,6 +287,85 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
+  /api/v1/control:
+    get:
+      tags: [控制]
+      summary: 进程控制能力
+      description: |-
+        让界面知道"这个部署能不能做进程控制"——据此决定是显示按钮还是显示一句
+        为什么不能点。让用户点完才被 403 拒掉是最差的体验。
+
+        `canControl` 的依据是**请求来源地址**（本机与内网为 true）。
+        重启与停止只允许这两类来源：它们能把服务停掉，而停止不会自己回来。
+        ⚠️ 判断**不看 `X-Forwarded-For`**——那个头客户端可伪造，
+        信它等于给公网一个关机按钮。远程运维请走 VPN / 隧道。
+      operationId: controlCapabilities
+      responses:
+        "200":
+          description: 能力
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlCapabilities"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/control/restart:
+    post:
+      tags: [控制]
+      summary: 重启云崽
+      description: |-
+        **仅本机与内网来源**（否则 403）。返回 `202` 而不是 `200`：进程随后就会退出、
+        连接会断，所以后端先把"已受理"发出去，延迟几百毫秒才真正重启。
+        客户端拿到 202 应显示"正在重启…"，然后轮询 `/api/v1/ready` 等它回来。
+
+        重启**会自己回来**：后端先关掉自己的 HTTP 监听把端口腾出来，再用
+        `spawn(detached)` 拉起一个命令行完全相同的新进程。这个顺序不能反——
+        内核的 `serverEADDRINUSE()` 在端口被占用时会向占用者发一个 `/exit`，
+        新进程先起来的话会把老进程踢掉。
+      operationId: controlRestart
+      responses:
+        "202":
+          description: 已受理
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/control/stop:
+    post:
+      tags: [控制]
+      summary: 停止云崽
+      description: |-
+        **仅本机与内网来源**（否则 403）。⚠️ **停止不会自动恢复**：
+        服务不会自己回来，而且面板本身也一起停了（它就跑在同一个进程里）。
+        界面必须二次确认。
+
+        走内核的 `Bot.exit()`，它会先妥善收尾 redis（`redisExit()`）——
+        这正是"干净停止"与"直接 `process.exit`"的区别。
+      operationId: controlStop
+      responses:
+        "202":
+          description: 已受理
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ControlAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
   /api/v1/logs:
     get:
       tags: [日志]
@@ -382,6 +461,17 @@ components:
             $ref: "#/components/schemas/Error"
     BadRequest:
       description: 请求不合法（文件名不合白名单、`Content-Length` 不是数字、JSON 解析失败等）。
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: |-
+        来源不允许做这个操作。目前只有 `/control/*` 会返回它：
+        重启与停止**仅限本机与内网**，公网来源一律 403。
+
+        刻意不用 401：401 会让人以为"令牌填错了"从而反复试令牌，
+        而真正的原因是"你这个来源不允许做这件事"。
       content:
         application/json:
           schema:
@@ -717,3 +807,31 @@ components:
           description: |-
             恒为 true：配置是启动期读进内存的，写盘不影响正在运行的进程。
             界面据此提示用户去重启。
+
+    ControlCapabilities:
+      type: object
+      required: [canControl, stopIsRecoverable]
+      properties:
+        canControl:
+          type: boolean
+          description: |-
+            当前**请求来源**是否被允许执行重启/停止。本机与内网为 true，公网为 false。
+            界面据此决定显示按钮还是显示一句为什么不能点。
+        stopIsRecoverable:
+          type: boolean
+          const: false
+          description: 停止之后能不能自动恢复。恒为 false——界面据此加二次确认
+
+    ControlAccepted:
+      type: object
+      required: [code, action, message]
+      properties:
+        code:
+          type: string
+          const: accepted
+        action:
+          type: string
+          enum: [restart, stop]
+        message:
+          type: string
+          description: 给用户看的说明（含"停止不会自动恢复"这类后果提示）

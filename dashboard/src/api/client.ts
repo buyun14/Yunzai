@@ -20,6 +20,8 @@ import type {
   ConfigList,
   ConfigSchemas,
   ConfigWriteResult,
+  ControlAccepted,
+  ControlCapabilities,
   LogLine,
   Plugins,
   Ready,
@@ -169,6 +171,38 @@ export function getConfigFile(name: string, init?: RequestInit): Promise<ConfigF
  */
 export function getConfigSchemas(init?: RequestInit): Promise<ConfigSchemas> {
   return getJSON<ConfigSchemas>("/config/schemas", init)
+}
+
+/**
+ * 取进程控制能力（v3）。
+ *
+ * 界面据此决定"显示重启/停止按钮"还是"显示一句为什么不能点"——
+ * 让用户点完才被 403 拒掉是最差的体验。公网来源会拿到 `canControl: false`
+ * （后端只允许本机与内网，理由见 `lib/web/api/control.js`）。
+ */
+export function getControlCapabilities(init?: RequestInit): Promise<ControlCapabilities> {
+  return getJSON<ControlCapabilities>("/control", init)
+}
+
+/**
+ * 重启云崽。
+ *
+ * 后端返回 **202**（已受理）而不是 200：进程随后就会退出、连接会断，
+ * 所以它先把"已受理"发出来、延迟几百毫秒才真正重启。
+ * 调用方拿到 202 就该显示"正在重启…"，然后隔几秒轮询 `/ready`。
+ */
+export function postRestart(init?: RequestInit): Promise<ControlAccepted> {
+  return sendJSONRequest<ControlAccepted>("/control/restart", {}, { method: "POST", ...init })
+}
+
+/**
+ * 停止云崽。
+ *
+ * ⚠️ **停止不会自动恢复**。界面上必须二次确认——用户点错一下，
+ * 服务就没了，而且面板本身也一起没了（它就长在这个进程里）。
+ */
+export function postStop(init?: RequestInit): Promise<ControlAccepted> {
+  return sendJSONRequest<ControlAccepted>("/control/stop", {}, { method: "POST", ...init })
 }
 
 /**

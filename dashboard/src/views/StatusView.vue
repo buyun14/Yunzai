@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from "vue"
-import { getReady, getStatus } from "@/api/client"
-import type { Status } from "@/api/types"
+import { getControlCapabilities, getReady, getStatus, postRestart, postStop } from "@/api/client"
+import type { ControlCapabilities, Status } from "@/api/types"
 import PanelState from "@/components/PanelState.vue"
 import { useAsync } from "@/composables/useAsync"
 import { describeOnline, formatDuration, formatMB } from "@/utils/format"
@@ -78,6 +78,78 @@ function manualRefresh(): void {
   syncTimer()
 }
 
+/* ------------------------------------------------------------------ *
+ *  进程控制（v3）：重启 / 停止
+ * ------------------------------------------------------------------ */
+
+/** 后端允许哪些来源做进程控制（公网来源会被拒） */
+const capabilities = ref<ControlCapabilities | null>(null)
+/** 正在执行的动作 */
+const acting = ref<"" | "restart" | "stop">("")
+const actionError = ref("")
+const actionNotice = ref("")
+/** 停止的二次确认对话框 */
+const confirmStop = ref(false)
+
+void getControlCapabilities()
+  .then(value => (capabilities.value = value))
+  .catch(() => (capabilities.value = { canControl: false, stopIsRecoverable: false }))
+
+async function doRestart(): Promise<void> {
+  acting.value = "restart"
+  actionError.value = ""
+  actionNotice.value = ""
+  try {
+    const result = await postRestart()
+    actionNotice.value = result.message
+    // 进程马上会退出，所以这里开始轮询"它回来了没有"，
+    // 比让用户自己去猜"要等多久"好
+    await waitForBack()
+  } catch (err) {
+    actionError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    acting.value = ""
+  }
+}
+
+async function doStop(): Promise<void> {
+  confirmStop.value = false
+  acting.value = "stop"
+  actionError.value = ""
+  actionNotice.value = ""
+  try {
+    const result = await postStop()
+    actionNotice.value = result.message
+  } catch (err) {
+    actionError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    acting.value = ""
+  }
+}
+
+/**
+ * 等宿主回来。
+ *
+ * 重启期间 `/ready` 会先失败（连接被拒）、再 503（启动中）、最后 200。
+ * 这里只做"最多等 60 秒，回来了就把状态刷一遍"，返回后由调用方收尾。
+ *
+ * @returns 无
+ */
+async function waitForBack(): Promise<void> {
+  for (let i = 0; i < 30; i++) {
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    try {
+      await getReady()
+      actionNotice.value = "已重启完成"
+      void refresh()
+      return
+    } catch {
+      // 还没回来，继续等
+    }
+  }
+  actionNotice.value = "已受理，但 60 秒内没等到它回来——请查看日志确认"
+}
+
 const cards = computed(() => {
   const s = data.value
   if (!s) return []
@@ -140,6 +212,63 @@ const lastUpdated = computed(() =>
       :on-retry="manualRefresh"
     >
       <template v-if="data">
+        <!-- 进程控制。放在最上面是因为它是最常用的运维动作 -->
+        <v-card variant="outlined" class="mb-4" data-testid="control-card">
+          <v-card-item prepend-icon="mdi-power" title="进程控制" />
+          <v-card-text>
+            <div class="d-flex align-center flex-wrap ga-2">
+              <v-btn
+                data-testid="control-restart"
+                color="primary"
+                variant="tonal"
+                prepend-icon="mdi-restart"
+                :disabled="!capabilities?.canControl"
+                :loading="acting === 'restart'"
+                @click="doRestart()"
+              >
+                重启云崽
+              </v-btn>
+              <v-btn
+                data-testid="control-stop"
+                color="error"
+                variant="tonal"
+                prepend-icon="mdi-stop-circle-outline"
+                :disabled="!capabilities?.canControl"
+                :loading="acting === 'stop'"
+                @click="confirmStop = true"
+              >
+                停止
+              </v-btn>
+              <span v-if="!capabilities?.canControl" class="text-caption text-medium-emphasis">
+                当前访问来源不在允许列表里（只允许本机与内网）。远程运维请走 VPN 或隧道。
+              </span>
+              <span v-else class="text-caption text-medium-emphasis">
+                重启会自动回来；<strong>停止不会</strong>，需要用你原来的方式重新启动。
+              </span>
+            </div>
+
+            <v-alert
+              v-if="actionError"
+              type="error"
+              variant="tonal"
+              density="comfortable"
+              class="mt-3"
+            >
+              {{ actionError }}
+            </v-alert>
+            <v-alert
+              v-if="actionNotice"
+              type="info"
+              variant="tonal"
+              density="comfortable"
+              class="mt-3"
+              data-testid="control-notice"
+            >
+              {{ actionNotice }}
+            </v-alert>
+          </v-card-text>
+        </v-card>
+
         <v-row dense>
           <v-col v-for="card in cards" :key="card.title" cols="12" sm="6" md="4">
             <v-card variant="tonal" :color="card.color">
@@ -232,4 +361,24 @@ const lastUpdated = computed(() =>
       </template>
     </PanelState>
   </div>
+
+  <!-- 停止不会自动恢复，所以必须二次确认 -->
+  <v-dialog v-model="confirmStop" max-width="520">
+    <v-card>
+      <v-card-title>确认停止云崽？</v-card-title>
+      <v-card-text>
+        <v-alert type="warning" variant="tonal" density="comfortable" class="mb-3">
+          停止之后<strong>不会自动恢复</strong>，而且这个面板本身也一起停了 ——它就跑在同一个进程里。
+        </v-alert>
+        要用你原来的方式（宝塔 / pm2 / 命令行）重新启动。
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="confirmStop = false">取消</v-btn>
+        <v-btn data-testid="control-stop-confirm" color="error" variant="flat" @click="doStop()">
+          确认停止
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
