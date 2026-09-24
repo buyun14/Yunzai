@@ -4,6 +4,7 @@ import path from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { createConfigHandler, maskSecrets } from "../../../lib/web/api/config.js"
 import { createPluginsHandler } from "../../../lib/web/api/plugins.js"
+import { createSchemasHandler } from "../../../lib/web/api/schemas.js"
 import { createStatusHandler } from "../../../lib/web/api/status.js"
 
 /**
@@ -239,6 +240,54 @@ describe("GET /config", () => {
     )
     expect(status).toBe(200)
     expect(json.files).toEqual([])
+  })
+})
+
+describe("GET /config/schemas", () => {
+  it("返回已建模文件的 schema 与未建模名单", async () => {
+    const { status, json } = await call(
+      createSchemasHandler({
+        schemas: { "bot.yaml": { type: "object", title: "行为", properties: {} } },
+        unmodeled: { "group.yaml": "顶层是动态键，表达不了" },
+      }),
+      {},
+    )
+
+    expect(status).toBe(200)
+    expect(json.schemas["bot.yaml"].title).toBe("行为")
+    expect(json.unmodeled).toEqual([{ name: "group.yaml", reason: "顶层是动态键，表达不了" }])
+  })
+
+  it("真实 schema 表里 7 个配置文件都在，且都是顶层 object", async () => {
+    const { json } = await call(createSchemasHandler(), {})
+    const names = Object.keys(json.schemas).sort()
+    expect(names).toEqual([
+      "bot.yaml",
+      "milky.yaml",
+      "other.yaml",
+      "redis.yaml",
+      "renderer.yaml",
+      "satori.yaml",
+      "server.yaml",
+    ])
+    for (const [name, schema] of Object.entries(json.schemas)) {
+      expect(schema.type, `${name} 的顶层应当是 object`).toBe("object")
+      expect(schema.title, `${name} 缺 title`).toBeTruthy()
+    }
+  })
+
+  it("未建模名单带原因（前端要区分「只能原始编辑」与「漏了」）", async () => {
+    const { json } = await call(createSchemasHandler(), {})
+    const names = json.unmodeled.map(item => item.name).sort()
+    expect(names).toEqual(["db.yaml", "group.yaml"])
+    for (const item of json.unmodeled) expect(item.reason.length).toBeGreaterThan(10)
+  })
+
+  it("是深拷贝：调用方改返回值不会污染模块级单例", async () => {
+    const first = await call(createSchemasHandler(), {})
+    first.json.schemas["bot.yaml"].title = "被改过"
+    const second = await call(createSchemasHandler(), {})
+    expect(second.json.schemas["bot.yaml"].title).toBe("行为与日志")
   })
 })
 

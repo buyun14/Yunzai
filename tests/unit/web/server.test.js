@@ -246,6 +246,20 @@ describe("挂载门卫：启用且已配置鉴权", () => {
     expect(JSON.parse(res.text).code).toBe("not_found")
   })
 
+  it("/config/schemas 不会被 /config/:name 抢先匹配（注册顺序是契约的一部分）", async () => {
+    // 这条只能在**真实路由**上验：处理器单测直接调 createSchemasHandler，
+    // 绕过了 express 的匹配顺序。而 `/config/schemas` 排在 `/config/:name`
+    // 之后就永远拿不到请求——`schemas` 会被当成文件名，然后被白名单拒成 400。
+    const { webui } = makeWebUI()
+    const url = await serve(hostApp(webui))
+
+    const res = await request(url, `${API_PREFIX}/config/schemas`)
+    expect(res.status, "被 :name 抢先了（返回 400 = 当成文件名拒掉了）").toBe(200)
+    const body = JSON.parse(res.text)
+    expect(body.schemas["bot.yaml"].type).toBe("object")
+    expect(body.unmodeled.map(item => item.name).sort()).toEqual(["db.yaml", "group.yaml"])
+  })
+
   it("mount 幂等：重复挂载不会把中间件叠两遍", async () => {
     const { webui } = makeWebUI()
     const app = hostApp(webui)

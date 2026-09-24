@@ -17,6 +17,41 @@
 > 阶段 5 遗留的「宿主配置 schema 化」**已完成**（`lib/config/host-schema.js`，
 > 见 `05-persistence-config.md` §3.2），v2 的配置编辑只差
 > 「schema 只读端点 + 写入端点 + 前端表单」三块，见 §7.6。
+>
+> ### v2 第一步已落地：schema 只读端点（2026-09-24）
+>
+> `GET /api/v1/config/schemas`（`lib/web/api/schemas.js`）返回
+> `{ schemas, unmodeled }`：前者是「文件名 → 受控子集 schema」，后者是
+> **明确不建模**的文件与原因。一起返回 `unmodeled` 是刻意的——前端必须能区分
+> 「只能原始编辑（有理由）」与「没拿到 schema（可能漏了）」，
+> 否则 `group.yaml` 会表现为"界面上凭空少了个文件"，真正的原因就丢了。
+>
+> **为什么是列表而不是 `/config/{name}/schema`**：`/config/:name` 已经占了那个位置，
+> 而 `schemas` 恰好能匹配 `:name`。于是**路由注册顺序成了契约的一部分**——
+> `/config/schemas` 必须排在 `/config/:name` 之前。这个坑有实证：
+>
+> ```
+> schemasFirst=true  → HTTP 200  {"schemas":{"bot.yaml":{…}}}
+> schemasFirst=false → HTTP 400  {"code":"bad_request","message":"文件名不合法：schemas"}
+> ```
+>
+> 顺序写反时**不会报错、只是永远拿不到请求**，而 400 的文案（"文件名不合法"）
+> 还会把人往"文件名白名单"上带。所以 `tests/unit/web/server.test.js` 里有一条
+> **真实 HTTP** 用例盯着它——处理器单测看不见路由匹配，只有真实路由能验。
+>
+> 真机验证（临时启用面板、验完已还原）：
+>
+> ```
+> GET /api/v1/config/schemas → 200
+>   已建模：bot.yaml, milky.yaml, other.yaml, redis.yaml, renderer.yaml, satori.yaml, server.yaml
+>   未建模：group.yaml（顶层是「Bot:群」动态键…） | db.yaml（已废弃，BCR-0001…）
+>   bot.yaml 顶层 23 个字段；log_level 的 enum = [trace…off]
+>   server.auth 的 x-widget = raw ；redis.password 的 x-widget = password
+> 与既有接口共存：/api/v1/config 200、/config/bot.yaml 200、/config/schemas 200、/status 200
+> ```
+>
+> 这一步**是只读的**，没有放宽任何权限，因此不需要 BCR 登记；
+> 写入端点（下一步）才会动到鉴权与限流，届时按 BCR 走。
 
 ---
 
@@ -350,6 +385,7 @@
 > | `/api/v1/status` | 版本、在线状态、运行时长、内存、运行时、插件计数、适配器列表、账号列表 |
 > | `/api/v1/plugins` | 已加载插件的**执行顺序**（即 `priority` 排序后的）与规则摘要 |
 > | `/api/v1/config` | 文件清单 + 与出厂默认的差异**条数** |
+> | `/api/v1/config/schemas` | 宿主配置的 schema（v2 表单用）+ 明确不建模的文件与原因 |
 > | `/api/v1/config/{name}` | 该文件在用户侧与默认侧的**值**（密钥键已脱敏） |
 > | `/api/v1/logs` | SSE 实时日志流（先回放最近 200 条，之后实时推；每 15 秒一个心跳） |
 >
@@ -564,7 +600,7 @@
 
 | 项 | 内容 | 前置 |
 |---|---|---|
-| **v2 配置编辑** | 表单由 schema 渲染；写入前后走同一个同构校验器（阶段 1 的 `lib/plugins/schema.js`） | 阶段 1、5 —— **两侧都已就绪**：schema 表在 `lib/config/host-schema.js`（阶段 5 §3.2 已落地，7 个文件建模）；剩下的是 `/api/v1` 的 schema 只读端点 + 写入端点（含原子写与写入前备份）与前端表单 |
+| **v2 配置编辑** | 表单由 schema 渲染；写入前后走同一个同构校验器（阶段 1 的 `lib/plugins/schema.js`） | 阶段 1、5 —— **两侧都已就绪**：schema 表在 `lib/config/host-schema.js`（阶段 5 §3.2 已落地）；**schema 只读端点已落地**（§4）。剩下两步：<br>① **写入端点**：`PUT /api/v1/config/{name}`（含原子写、写前备份、用同一份校验器拒非法值、敏感路径二次确认）——**这一步会放宽权限面，必须按 BCR 登记**；<br>② **前端表单**：由 `x-widget` 决定控件，`raw` 的走原始 yaml 编辑 |
 | **v3 插件页面** | 插件自带 `pages/`，受限 iframe + 插件用 `Bot.express` 注册自有 API | 阶段 7（可选） |
 | 敏感接口的紧限流 | 重启/更新落地时，在对应子路径上再叠一层更紧的令牌桶 + 二次确认字段 | v2 |
 | 契约↔客户端闸门 | 引入 `@hey-api/openapi-ts` 后叠「生成 + `git diff --exit-code`」，与现有的契约↔服务端检查互补 | 前端需要生成客户端时 |

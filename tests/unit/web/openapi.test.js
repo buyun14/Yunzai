@@ -6,6 +6,7 @@ import YAML from "yaml"
 import { createConfigHandler } from "../../../lib/web/api/config.js"
 import { createPluginsHandler } from "../../../lib/web/api/plugins.js"
 import { createApiRouter, createReadyHandler } from "../../../lib/web/api/router.js"
+import { createSchemasHandler } from "../../../lib/web/api/schemas.js"
 import { createStatusHandler } from "../../../lib/web/api/status.js"
 
 /**
@@ -162,6 +163,7 @@ function samplers() {
         }),
       ),
     "/api/v1/config": () => bodyOf(createConfigHandler(configDirs)),
+    "/api/v1/config/schemas": () => bodyOf(createSchemasHandler()),
     "/api/v1/config/{name}": () =>
       bodyOf(createConfigHandler(configDirs), { params: { name: "bot.yaml" }, query: {} }),
   }
@@ -220,6 +222,10 @@ describe("契约与路由一致", () => {
       "/status": ["get"],
       "/plugins": ["get"],
       "/config": ["get"],
+      // ⚠️ 顺序有意义：它必须排在 `/config/:name` 之前，否则 `schemas` 会被
+      // 当成文件名匹配进 `:name`。这里断言的是**集合**，顺序由
+      // `api.test.js` 里那条"schemas 不会被当成文件名"的用例守着
+      "/config/schemas": ["get"],
       "/config/:name": ["get"],
       "/logs": ["get"],
     })

@@ -131,6 +131,46 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
+  /api/v1/config/schemas:
+    get:
+      tags: [配置]
+      summary: 宿主配置的 schema
+      description: |-
+        把 `config/default_config/*.yaml` 的**结构描述**交给前端，供配置编辑表单（v2）渲染。
+
+        ## 为什么是「列表」而不是 `/config/{name}/schema`
+        ① `/config/:name` 已经占了那个位置，而 `schema` 恰好能匹配 `:name`
+        （然后被文件名白名单拒掉）；② 前端一次就能决定整个页面怎么渲染，
+        不必逐个文件试探。
+
+        ## `schemas` 的形状
+        受控 JSON Schema 子集（见 `docs/refactor/01-plugin-contract.md` §3.2）：
+        `type` / `properties` / `items` / `required` / `default` / `enum` /
+        `minimum` / `maximum` / `minLength` / `maxLength` / `pattern` /
+        `title` / `description` / `x-widget`。**未列出的关键字不存在**——
+        契约不逐个描述嵌套结构是刻意的：它的形态由那份子集定义，
+        穷举一遍只会得到一份需要跟着子集同步的重复清单。
+
+        `x-widget` 的取值：`password`（先遮住）、`textarea`、`select`、
+        `raw`（**不要渲染成表单**，让用户直接编辑 yaml）。
+
+        ## 与 `GET /api/v1/config` 的关系
+        那个接口给的是**文件清单**（用户侧有没有、与默认差几项），
+        这个给的是**结构描述**。前端把两者合起来才知道：
+        哪些文件能出表单、哪些只能原始编辑、哪些用户侧还没有。
+      operationId: configSchemas
+      responses:
+        "200":
+          description: 已建模文件的 schema，以及明确不建模的文件与原因
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigSchemas"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
   /api/v1/config/{name}:
     get:
       tags: [配置]
@@ -536,3 +576,31 @@ components:
           description: 被脱敏的路径（`a.b.c`；数组元素写成 `a[0].b`）
           items:
             type: string
+
+    ConfigSchemas:
+      type: object
+      required: [schemas, unmodeled]
+      properties:
+        schemas:
+          type: object
+          description: |-
+            `文件名 → 受控 JSON Schema 子集`。前端照它渲染表单。
+            键就是 `config/default_config/` 下已建模的那些 yaml 文件名。
+
+            这里刻意声明成开放对象（`additionalProperties: true`）而不展开每个文件的
+            schema：嵌套结构的形态由 `docs/refactor/01-plugin-contract.md` §3.2
+            的受控子集定义，在契约里再穷举一遍只会得到一份需要跟着子集同步的重复清单。
+          additionalProperties: true
+        unmodeled:
+          type: array
+          description: 明确**不建模**的文件与原因。前端据此让用户原始编辑，而不是当成"漏了"。
+          items:
+            type: object
+            required: [name, reason]
+            properties:
+              name:
+                type: string
+                examples: [group.yaml]
+              reason:
+                type: string
+                description: 为什么这个文件不用 schema 表达（如"顶层是动态键，受控子集表达不了"）
