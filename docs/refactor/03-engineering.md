@@ -174,7 +174,7 @@ puppeteer / 渲染 / 适配器等需要真实环境才能跑的模块，
 > **关闭时间：阶段 3 第 8 步。** `baseline/static-analysis.md` 的 ESLint 数字已归零
 > （16 error / 9 warning → 0 / 0），前提条件随之消失，于是：
 > `lint-staged.config.js` 加回 eslint、`ci.yml` 去掉 `lint:eslint` 的 `continue-on-error`。
-> `typecheck` 的 `continue-on-error` 仍未去掉（还剩 270 处），归 §4 第 8 步的后续。
+> `typecheck` 的 `continue-on-error` 也已在同一步去掉：自有代码报错已随第 8 步归零（270 → 0）。
 
 ### 3.6 CI
 
@@ -234,7 +234,7 @@ puppeteer / 渲染 / 适配器等需要真实环境才能跑的模块，
 | 6 | 新增 `ci.yml`（先只跑 lint + test，typecheck 设 `continue-on-error`） | ✅ | ✅ 阶段 0 |
 | 6a | **覆盖率**：登记基线 → 设门槛 → 接进 CI | ✅ | ✅ 阶段 3（见 §3.4.1） |
 | 7 | 新增 `smoke.yml` | ✅ | ✅ 阶段 3（redis service + `scripts/smoke.mjs`） |
-| 8 | 收紧：按目录消除 ESLint 告警与 TS 报错，逐目录把 `continue-on-error` 去掉 | 逐步 | 🚧 **ESLint 已归零**（16/9 → 0/0，已转为阻塞）；typecheck 剩 270 处 |
+| 8 | 收紧：按目录消除 ESLint 告警与 TS 报错，逐目录把 `continue-on-error` 去掉 | 逐步 | ✅ **已全部归零**：ESLint 16/9 → 0/0；typecheck 270 → **0**；两者均已转阻塞 |
 
 ---
 
@@ -244,7 +244,8 @@ puppeteer / 渲染 / 适配器等需要真实环境才能跑的模块，
 - [x] `.prettierignore` 生效：修改 `lib/modules/` 下任何文件都不会被格式化
 - [x] `pnpm lint:eslint` **零问题**并作为阻塞项：阶段 3 第 8 步从 16 error / 9 warning 清到 0/0，
       提交钩子与 CI 均已转为阻塞；逐条处理方式见 `baseline/static-analysis.md` §0.1
-- [x] `pnpm typecheck` 可运行，报错数量已登记基线（阶段 2 末为 270 处）
+- [x] `pnpm typecheck` **零报错**并作为阻塞项：阶段 3 第 8 步从 270 处清到 0，
+      CI 的 `continue-on-error` 已去掉；收敛过程与四类根因见 `baseline/static-analysis.md`
 - [x] `pnpm test` 至少覆盖：`lib/plugins/schema.js` 校验器、调度器递回逻辑、`RateLimit` 拆分的两个 Stage
 - [x] **覆盖率**：核心模块 95.22% / 89.66% / 94.23% / 96.91%，门槛已入 `vitest.config.js` 并在 CI 里阻塞（`03-engineering.md` §3.4.1）
 - [x] `smoke.yml` 跑通：本地实测加载插件 27 个 / 适配器 7 个 / 监听 5 个，

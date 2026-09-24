@@ -47,10 +47,10 @@ jobs:
       - name: ESLint
         run: pnpm lint:eslint
 
-      # 首次引入，报错基线见 docs/refactor/03-engineering.md，清零后再改为阻塞
+      # 自有代码报错已归零（阶段 3 第 8 步），因此改为阻塞项。
+      # 第三方（node_modules / miao-plugin）的报错由 scripts/typecheck.mjs 过滤，不计入闸门。
       - name: Typecheck
         run: pnpm typecheck
-        continue-on-error: true
 
       - name: Test
         run: pnpm test

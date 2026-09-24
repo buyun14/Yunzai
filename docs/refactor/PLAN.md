@@ -113,7 +113,7 @@ flowchart TD
 | 0 | 前期准备 | `00-prep.md` | 仓库基线、分支模型、lint/format 闸门、CI 骨架、`AGENTS.md` | CI 绿灯；`pnpm lint` 为只读校验 | ✅ 完成（1 项延期） |
 | 1 | 插件契约 | `01-plugin-contract.md` | `plugin.json` 元数据、`config.schema.json`、权限/平台/版本声明、旧基类自动合成 | 3 个内置插件完成迁移且行为不变 | ✅ 完成 |
 | 2 | 流水线 | `02-pipeline.md` | `Stage` 有序链 + `Scheduler` + `PipelineContext` + `EventBus` | `deal()` 各步骤全部下沉为 Stage，旧插件无感 | 🚧 9 个 Stage + `EventBus` 已切换并真机验证；剩第 5 步（清理旧路径） |
-| 3 | 工程化 | `03-engineering.md` | vitest 单测、`checkJs`、ESLint、husky + commitlint、覆盖率 | 核心模块覆盖率 ≥ 60% | 🚧 覆盖率 95.22% 已达标并入 CI；剩第 8 步（收紧 ESLint/类型基线，16 error / 9 warning / 270 类型报错） |
+| 3 | 工程化 | `03-engineering.md` | vitest 单测、`checkJs`、ESLint、husky + commitlint、覆盖率 | 核心模块覆盖率 ≥ 60% | ✅ 完成（覆盖率 95.22%；ESLint 与 typecheck 均已归零并转阻塞；共 355 个单测） |
 | 4 | 消息与适配器 | `04-message-adapter.md` | `Component` 抽象、适配器注册表与能力表、会话唯一键 `umo` | Milky/Satori 走同一组件路径 | 未开始 |
 | 5 | 持久化与配置 | `05-persistence-config.md` | 幂等迁移、`config_version`、结构化备份导出 | 老配置/老库可自动升级并可回滚 | 未开始 |
 | 6 | WebUI | `06-webui.md` | Vue3 运维面板、OpenAPI 契约与客户端生成 | 可在 UI 内改配置并热生效 | 未开始 |

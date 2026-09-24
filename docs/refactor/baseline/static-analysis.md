@@ -12,7 +12,7 @@
 |---|---|---|---|---|
 | 格式化 + 语法 | `pnpm lint` | ✅ 通过 | ✅ 通过 | **阻塞** |
 | ESLint | `pnpm lint:eslint` | ❌ 25 问题（16 error / 9 warning） | ✅ **0 问题** | **阻塞**（原 `continue-on-error`） |
-| 类型检查 | `pnpm typecheck` | ❌ 278 处（自有代码，第三方 147 处已排除） | ❌ **137** 处 | `continue-on-error` |
+| 类型检查 | `pnpm typecheck` | ❌ 278 处（自有代码，第三方 147 处已排除） | ✅ **0 处** | **阻塞**（原 `continue-on-error`） |
 | 单元测试 | `pnpm test` | ✅ 5 通过（L0 冻结面守卫） | ✅ 352 通过 | **阻塞** |
 
 复现：
@@ -39,7 +39,7 @@ ESLint 基线已清零，处理方式**逐条不同**——凡是有行为风险
 | D1 · `no-unsafe-finally` | ✅ 改写 + 补单测 | 见下 |
 | D3 · Symbol 隐式转字符串 | ✅ 已修 + 配单测 | 见 §3.3；测试 `tests/unit/bot-proxy.test.js`（去掉 `String(prop)` 会立刻变红） |
 
-同一轮的**类型检查**进展（270 → 137）：
+同一轮的**类型检查**进展（270 → 0，已转阻塞）：
 
 | 项 | 处理 | 说明 |
 |---|---|---|
@@ -254,6 +254,25 @@ getChannelMap: this.getGuildChannelMap.bind(this, i),
   得先确认调用方期待什么，属功能决策。
 - 同样用 `@ts-expect-error` 标注，归口阶段 4。
 
+#### D8 · `plugins/system/quit.js` · `instanceof` 守卫恒为 false（已修）
+
+```js
+if ((!gml) instanceof Map) return false
+```
+
+对**布尔值**做 `instanceof` 恒为 false，所以这个守卫**从来没生效过**——
+本意显然是 `if (!(gml instanceof Map))`。已按本意修正。
+
+#### D9 · `plugins/system/add.js` · `JSON.stringify` 的无效实参（已修）
+
+```js
+JSON.stringify(obj, "", "\t")
+```
+
+第二个参数是 replacer，而 `""` 既不是函数也不是数组，**按规范会被忽略**——
+也就是说它一直是个无声的无效实参（标准写法是 `null`）。改成 `null` 行为完全一致，
+同时让返回类型确定下来（TS 原来按重载推断对不上）。
+
 ### 3.4 TS8032：JSDoc「点号名」的语法约束（30 处，已清零）
 
 报错形如：
@@ -320,12 +339,12 @@ export default /** @type {Cfg & CfgGroups} */ (new Cfg())
    **三条均已修复并各配单测**：D1 → `tests/unit/util/debounce.test.js`；
    D2 删除自赋值（无需测试，无行为）；D3 → `tests/unit/bot-proxy.test.js`（已红绿验证）。
 3. ⬜ 引入 `typescript-eslint` 并开启类型感知规则（`no-floating-promises`），这需要先降低类型噪声。
-4. 🚧 收敛 §3.2 的四类类型噪声，按目录推进：`lib/pipeline/` → `lib/plugins/` → `lib/message/` → `lib/config/` → `lib/bot.js`。
-   270 → 137；`lib/pipeline/` 与 TS8032 已清零，重灾区剩下 `plugins/adapter/Milky.js`（19）、
-   `lib/bot.js`（18）、`lib/util.js`（13）。
-5. ⏳ 数字归零后，把 CI 中 `lint:eslint` 与 `typecheck` 的 `continue-on-error` 去掉。
-   **`lint:eslint` 已完成**（ESLint 归零，`ci.yml` 已改为阻塞，`lint-staged.config.js`
-   也把 eslint 加进了提交钩子）；`typecheck` 依赖第 4 步。
+4. ✅ 收敛 §3.2 的四类类型噪声，按目录推进：`lib/pipeline/` → `lib/plugins/` → `lib/message/` → `lib/config/` → `lib/bot.js`。
+   **270 → 0（2026-09-24）**：按根因逐批推进，而不是按目录死磕。
+   最大的三根杆杆：`Cfg` 补类型（100 处）、TS8032（30 处）、`lib/bot.js` 的
+   `UinArray`（22 处）；剩下的都是长尾。详细过程见 §3.4 / §3.5 与各次提交信息。
+5. ✅ 数字归零后，把 CI 中 `lint:eslint` 与 `typecheck` 的 `continue-on-error` 去掉。
+   **两者均已完成**。
 6. ✅ 处理 §2.2 的 P1/P2/P3（加块作用域、补 `break`、setter 改块体）。
    关于"同步更新 `99-compat-and-migration.md` 中的隐式契约说明"：**无需更新**——
    P1 原本依赖"`process.exit` 覆盖后仍不得返回"这条跨文件隐式契约，
