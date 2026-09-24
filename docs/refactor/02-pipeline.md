@@ -251,13 +251,13 @@ flowchart LR
 | 0a | 手工事件 fixture + 事件/配置夹具（阶段 0 遗留的前置任务） | ✅ 已完成：`tests/fixtures/events/` 14 条样本 + `tests/helpers/{events,config,pipeline}.js` |
 | 1 | 骨架落地（不接线）：`stage.js` / `stage-order.js` / `context.js` / `scheduler.js` | ✅ 已完成 |
 | 2 | 等价 Stage 实现（9 个） | ✅ 已完成：9 个全部落地，共 150 个用例 |
-| 2a | `dispatch.js` 纯函数集 | ✅ 已完成：`matchesEvent` / `normalizeText` / `checkPermission` / `isPluginEnabled` / `shouldReplyOnlyAt` / `matchId` / `truncateForLog` |
+| 2a | `dispatch.js` 纯函数集 | ✅ 已完成：`matchesEvent` / `normalizeText` / `checkPermission` / `isPluginEnabled` / `shouldReplyOnlyAt` / `matchId` / `truncateForLog` / `asChatTarget` / `instantiate` / `callables` / `replyOf` |
 | 3 | 影子运行对比 | ⬜ 未开始（可直接调用新旧两套对比，**不需要 EventBus**） |
-| 3a | `lib/pipeline/bootstrap.js` | ⬜ 未开始（显式 import 全部 stage + `assertStageCoverage()`） |
+| 3a | `lib/pipeline/bootstrap.js` | ✅ 已完成：显式 import 全部 9 个 stage + `bootstrapPipeline()` 校验并排序；`scheduler.initialize()` 改为走它 |
 | 4 | EventBus 落地 + 切换（`deal()` 改为入队） | ⬜ 未开始 |
 | 5 | 清理旧路径 | ⬜ 未开始 |
 
-**第 2 步的实测结果**：`pnpm test` 259 个用例全通（阶段 2 贡献 150 个）；
+**第 2 / 3a 步的实测结果**：`pnpm test` 266 个用例全通（阶段 2 贡献 157 个）；
 ESLint 16 error / 9 warning、类型检查 273 处，均与基线**持平**。
 
 ### 7.2 落地时确认的行为细节（写代码时才看清的）
