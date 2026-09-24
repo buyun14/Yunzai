@@ -227,6 +227,17 @@ export interface ConfigWriteResult {
   restartRequired: true
 }
 
+/** `POST /api/v1/plugins/{key}/reload` 的响应 */
+export interface PluginReloadResult {
+  key: string
+  /** 重载后该插件是否仍在加载列表里（`false` 多半是新代码有错） */
+  reloaded: boolean
+  /** 恒为 false——重载按定义就不需要重启 */
+  restartRequired: false
+  /** 如实说明边界（如"插件之间有依赖时，被依赖方的改动要重启"） */
+  note: string
+}
+
 /* ------------------------------------------------------------------ *
  *  进程控制（v3）
  * ------------------------------------------------------------------ */

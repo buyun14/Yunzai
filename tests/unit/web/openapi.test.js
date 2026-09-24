@@ -10,6 +10,7 @@ import {
   createRestartHandler,
 } from "../../../lib/web/api/control.js"
 import { LogStream } from "../../../lib/web/api/logs.js"
+import { createPluginReloadHandler } from "../../../lib/web/api/plugin-reload.js"
 import { createPluginToggleHandler } from "../../../lib/web/api/plugin-toggle.js"
 import { createPluginsHandler } from "../../../lib/web/api/plugins.js"
 import { createApiRouter, createReadyHandler } from "../../../lib/web/api/router.js"
@@ -246,6 +247,14 @@ function samplers() {
     // 首页摘要用的一次性日志快照（不是 SSE 那条）
     "/api/v1/logs/recent": () =>
       bodyOf(new LogStream().createRecentHandler(), { params: {}, query: {} }),
+    // 插件重载。只回报形状，不真的动插件
+    "/api/v1/plugins/{key}/reload": () =>
+      bodyOf(
+        createPluginReloadHandler({
+          loader: { priority: [{ key: "a.js" }], changePlugin: async () => {} },
+        }),
+        { params: { key: "a.js" }, query: {} },
+      ),
   }
 }
 
@@ -303,6 +312,7 @@ describe("契约与路由一致", () => {
       // 同路径两个方法：GET 列插件、PUT 启停
       "/plugins": ["get"],
       "/plugins/:name": ["put"],
+      "/plugins/:key/reload": ["post"],
       "/config": ["get"],
       // ⚠️ 顺序有意义：`/config/schemas` 必须排在 `/config/:name` 之前，
       // 否则 `schemas` 会被当成文件名匹配进 `:name`（实证见 06-webui.md §4）。
@@ -373,6 +383,18 @@ describe("契约与响应体一致", () => {
 
     const body = await samplers()["/api/v1/plugins/{name}"]()
     const properties = spec.components.schemas.PluginToggleResult.properties
+    expect(Object.keys(body).sort()).toEqual(Object.keys(properties).sort())
+  })
+
+  it("插件重载接口的 200 响应体与 PluginReloadResult 一致", async () => {
+    const spec = await readSpec()
+    const schema =
+      spec.paths["/api/v1/plugins/{key}/reload"].post.responses["200"].content["application/json"]
+        .schema
+    expect(schema.$ref).toBe("#/components/schemas/PluginReloadResult")
+
+    const body = await samplers()["/api/v1/plugins/{key}/reload"]()
+    const properties = spec.components.schemas.PluginReloadResult.properties
     expect(Object.keys(body).sort()).toEqual(Object.keys(properties).sort())
   })
 

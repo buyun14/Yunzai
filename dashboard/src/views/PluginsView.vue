@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
-import { ApiError, getPlugins, putPlugin } from "@/api/client"
+import { ApiError, getPlugins, postPluginReload, putPlugin } from "@/api/client"
 import type { LoadedPlugin } from "@/api/types"
 import PanelState from "@/components/PanelState.vue"
 import { useAsync } from "@/composables/useAsync"
@@ -38,6 +38,37 @@ const toggling = ref("")
 const toggleError = ref("")
 /** 上一次切换的结果（含后端给的那句边界说明） */
 const toggleNotice = ref("")
+
+/** 正在重载的插件 key（与"启用/停用"按名字匹配不同，重载按文件） */
+const reloading = ref("")
+
+/**
+ * 不重启重载一个插件的代码。
+ *
+ * 用 `key`（文件相对路径）而不是 `name`：内核的热更新是按文件走的，
+ * 而"停用"是按插件名匹配群配置。两者是**不同的标识**，别弄混。
+ *
+ * @param plugin 插件条目
+ * @returns 无
+ */
+async function reloadPlugin(plugin: LoadedPlugin): Promise<void> {
+  if (!plugin.key) return
+  reloading.value = plugin.key
+  toggleError.value = ""
+  toggleNotice.value = ""
+  try {
+    const result = await postPluginReload(plugin.key)
+    toggleNotice.value = result.reloaded
+      ? `${result.key} 已重载。${result.note}`
+      : `${result.key} 重载后不在加载列表里，多半是新代码有错。${result.note}`
+    await refresh()
+  } catch (err) {
+    if (err instanceof ApiError && err.isUnauthorized) auth.promptForToken()
+    toggleError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    reloading.value = ""
+  }
+}
 
 /**
  * 切换一个插件的启停。
@@ -158,6 +189,7 @@ function displayName(plugin: LoadedPlugin): string {
               <th style="width: 120px">事件</th>
               <th style="width: 90px">规则</th>
               <th style="width: 90px">启用</th>
+              <th style="width: 90px">重载</th>
             </tr>
           </thead>
           <tbody>
@@ -235,12 +267,39 @@ function displayName(plugin: LoadedPlugin): string {
                     </template>
                   </v-tooltip>
                 </td>
+                <td @click.stop>
+                  <!--
+                    这里用**文字按钮**而不是图标按钮，是三次尝试后的结论：
+                    `v-btn` 的 `icon` prop 在自写的 SVG 图标集下渲染不出东西——
+                    `v-btn__content` 是空节点，按钮 32×32、DOM 里查得到也点得到，
+                    但页面上完全看不见。附带试过并排除的两条路：
+                    用 `v-tooltip` 的 `#activator` 插槽与 `activator` prop（后者会克隆一份
+                    只带 props 的目标元素、**不复制插槽内容**，同样吃图标）。
+
+                    只查 DOM 的断言发现不了这种问题，必须看截图。
+
+                    用文字还有额外好处：备份/重载这类**有副作用**的动作，写着字比一个
+                    图形更好认。
+                  -->
+                  <v-btn
+                    :id="`plugin-reload-${row.index}`"
+                    :data-testid="`plugin-reload-${row.index}`"
+                    title="重载这个插件文件的代码（不需要重启）"
+                    size="x-small"
+                    variant="text"
+                    :disabled="!row.plugin.key"
+                    :loading="reloading === row.plugin.key"
+                    @click="reloadPlugin(row.plugin)"
+                  >
+                    重载
+                  </v-btn>
+                </td>
               </tr>
 
               <!-- 展开的规则明细：正则原样显示（它就是匹配依据），不做美化 -->
               <tr v-if="expanded.includes(row.index)">
                 <td />
-                <td colspan="6" class="pa-0">
+                <td colspan="7" class="pa-0">
                   <v-table density="compact" class="bg-surface-light">
                     <thead>
                       <tr>

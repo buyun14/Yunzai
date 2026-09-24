@@ -425,6 +425,65 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
+  /api/v1/plugins/{key}/reload:
+    post:
+      tags: [状态]
+      summary: 不重启重载一个插件
+      description: |-
+        重载**一个插件文件**的代码，不需要重启宿主。
+
+        复用内核已有的热更新路径（`lib/plugins/loader.js` 的 `changePlugin()`，
+        文件监听热更新走的就是它），它已经处理好三件容易做错的事：
+
+        1. 先 `unloadPlugin()` 摘掉 handlers 与定时任务；
+        2. `import()` 时在路径后挂时间戳**破掉 ESM 模块缓存**——不带这个参数会拿到
+           旧模块，表现为"重载了但行为没变"；
+        3. **失败要回滚**：新代码加载失败时把旧的 handlers / 任务装回去，
+           而不是留下一个半死不活的插件。
+
+        ## 边界
+        - `key` 必须是 `GET /api/v1/plugins` 里的 `key` 字段（插件目录内的相对路径）。
+          服务端会做路径包含检查，`..` / 绝对路径 / 盘符一律 400——
+          因为 key 会被拼进 `import()` 的路径。
+        - 只重载一个文件。**插件之间有依赖时**，被依赖方的改动要重启才会反映到
+          已经加载的引用方上。
+        - 来源闸门比重启/停止松一档：**不限制来源**。能改配置的人本来就能改插件文件，
+          重载只是省一次重启。
+      operationId: pluginReload
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: 插件文件的相对路径（`GET /api/v1/plugins` 的 `key`）
+          schema:
+            type: string
+            examples: ["other/sendLog.js"]
+      responses:
+        "200":
+          description: "重载成功（`reloaded: true`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluginReloadResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: 没有已加载的插件对应这个 key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          description: 重载后插件不在加载列表里（多半是新代码有错，请看日志）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluginReloadResult"
+
   /api/v1/logs/recent:
     get:
       tags: [状态]
@@ -625,6 +684,23 @@ components:
         uptime:
           type: integer
           description: 进程运行秒数
+
+    PluginReloadResult:
+      type: object
+      required: [key, reloaded, restartRequired, note]
+      properties:
+        key:
+          type: string
+        reloaded:
+          type: boolean
+          description: 重载后该插件是否仍在加载列表里（false 多半是新代码有错）
+        restartRequired:
+          type: boolean
+          const: false
+          description: 恒为 false——重载按定义就不需要重启
+        note:
+          type: string
+          description: 如实说明边界（如"插件之间有依赖时，被依赖方的改动要重启"）
 
     RecentLogs:
       type: object

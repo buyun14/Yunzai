@@ -24,6 +24,7 @@ import type {
   ControlCapabilities,
   LogLine,
   Plugins,
+  PluginReloadResult,
   PluginToggleResult,
   Ready,
   RecentLogs,
@@ -219,6 +220,23 @@ export function putPlugin(
  */
 export function getRecentLogs(limit = 20, init?: RequestInit): Promise<RecentLogs> {
   return getJSON<RecentLogs>(`/logs/recent?limit=${encodeURIComponent(String(limit))}`, init)
+}
+
+/**
+ * 不重启重载一个插件的代码。
+ *
+ * 传的是**插件文件的相对路径**（`/api/v1/plugins` 里的 `key`），不是插件名
+ * ——停用是按名字匹配的，而重载是按文件。两者用不同的标识，别弄混。
+ *
+ * 后端复用内核的热更新路径，已处理好"破 ESM 缓存"与"失败回滚"。
+ * `reloaded: false` 表示重载后插件不在加载列表里，多半是新代码有错。
+ */
+export function postPluginReload(key: string, init?: RequestInit): Promise<PluginReloadResult> {
+  return sendJSONRequest<PluginReloadResult>(
+    `/plugins/${key.split("/").map(encodeURIComponent).join("/")}/reload`,
+    {},
+    { method: "POST", ...init },
+  )
 }
 
 /**

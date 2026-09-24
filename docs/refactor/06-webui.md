@@ -332,6 +332,58 @@
 > ⚠️ **导出"落盘"这一条验证不了**：这个 headless Chrome + puppeteer 组合完不成下载。
 > 用最小 blob 做对照组，同样报 `progress canceled`、下载目录为空——是环境限制。
 > 所以改为验证"下载事件 + blob 内容"两条。记在 `dev-notes.md` §13。
+>
+> ### v3 第四块：不重启重载插件（2026-09-24）
+>
+> `POST /api/v1/plugins/{key}/reload` + 插件列表每行的「重载」。登记为 **BCR-0007**。
+>
+> **刻意复用内核已有的热更新路径** `lib/plugins/loader.js` 的 `changePlugin(key)`
+> （文件监听热更新走的就是它），不另写一套卸载/重载——那只会与内核行为分叉。
+> 它已经处理好三件容易做错的事：
+>
+> 1. 先 `unloadPlugin()` 摘掉 handlers 与定时任务；
+> 2. `import()` 时在路径后挂时间戳**破掉 ESM 模块缓存**——不带这个参数会拿到旧模块，
+>    表现为"重载了但行为没变"（热更新最经典的坑）；
+> 3. **失败要回滚**：新代码加载失败时把旧的 handlers / 任务 / 计数装回去，
+>    而不是留下一个半死不活的插件。
+>
+> ⚠️ **key 必须做路径包含检查**：它会拼进 `../../plugins/<key>` 去 `import()`，
+> 所以 `..` / 绝对路径 / 盘符一律 400，否则等于任意模块加载。有专门的测试盯这条
+> （6 个恶意 key，一个都不许走到内核那条路径上）。
+>
+> 另外只接受**加载器报告过**的 key：拼错一个不存在的路径会让 `import` 抛错，
+> 虽然 `changePlugin` 兜得住，但那时回一个明确的 404 更有用。
+>
+> 来源闸门比重启/停止**松一档**（不限来源）：能改配置的人本来就能改插件文件，
+> 重载只是省一次重启。这个取舍写在 BCR-0007 里。
+>
+> 真机验证：
+>
+> ```
+> POST /plugins/other%2FsendLog.js/reload
+>   → 200 {"key":"other/sendLog.js","reloaded":true,"restartRequired":false,
+>           "note":"已重载该文件。若插件之间有依赖，被依赖方的改动要重启才会反映到已加载的引用方"}
+>   重载后该插件仍在 /api/v1/plugins 列表里；日志无报错
+> POST /plugins/..%2Fpackage.json/reload  → 400 插件 key 不合法
+> POST /plugins/nope%2Fnothing.js/reload  → 404 没有已加载的插件对应这个 key
+> ```
+>
+> #### 顺带发现：`v-btn` 的 `icon` prop 在自写图标集下渲染不出东西
+>
+> 「重载」最初做成图标按钮，结果**按钮存在、可点、32×32，但页面上完全看不见**
+> （`v-btn__content` 是空节点）。三条路都试过：
+>
+> | 写法 | 结果 |
+> |---|---|
+> | `icon="mdi-reload"` | content 空，图标不见 |
+> | `v-tooltip` + `#activator="{props}"` + `v-bind="props"` | 同上 |
+> | `v-tooltip` 的 `activator` prop（Vuetify 3 推荐写法） | 同上——它会克隆一份"只带 props 的"目标元素，**不复制插槽内容** |
+>
+> 最后改成**文字按钮**（"重载"），顺带更好认：有副作用的动作写着字比一个图形清楚。
+>
+> 值得记的教训：这条只查 DOM 的断言发现不了——`getBoundingClientRect()` 宽度正常、
+> `elementFromPoint` 也能命中，**必须看截图**。这也是为什么这一轮又抓出好几个
+> "DOM 正常但页面不对"的问题。
 
 ---
 
