@@ -102,9 +102,23 @@ em(name = "", data = {}) {
 
 | 步 | 内容 | 行为变化 |
 |---|---|---|
-| **v1 增量** | 新增 `lib/message/`；`dealEvent()` 改为：先 `parse()` 得到 `Component[]` 写入 `e.components`，再由 `legacy.js` 派生出现有的 `e.msg`/`e.img`/… | 旧字段与旧行为**逐字不变**；新增 `e.components` 且 `Unknown` 组件不再丢失（仅日志可见，插件可选用） |
+| **v1 增量** | 新增 `lib/message/`；归一化改为：先 `parse()` 得到 `Component[]` 写入 `e.components`，再由 `legacy.js` 派生出现有的 `e.msg`/`e.img`/… | 旧字段与旧行为**逐字不变**；新增 `e.components` 且 `Unknown` 组件不再丢失（仅日志可见，插件可选用） |
 | **v2 上移** | 归一化从 `dealEvent()` 移到 `prepareEvent()`（`lib/bot.js`），`dealEvent` 只保留别名剥离与 `only_reply_at` 计算 | 仍无行为变化，但 `lib/plugins/loader.js` 摆脱消息解析职责 |
 | **v3 发放** | 发送侧接受 `Component[]`，经 `render.js` 转成适配器 segment；`e.reply` 内部先走 `capability.js` 校验 | 新增能力，旧写法（直接传 segment）继续支持 |
+
+> **v1 的实际落点与分册原计划不同（已落地，2026-09-24）。**
+> 写这份分册时归一化还在 `PluginsLoader.dealEvent()` 里，所以原计划写的是"改 `dealEvent`"。
+> 阶段 2 把这段逻辑抽成了 `NormalizeStage`（`lib/pipeline/stages/normalize.js`），
+> 于是 v1 实际改的是 **`NormalizeStage.parseMessage()`**。
+>
+> 关键是 **旧路径 `loader.dealEvent()` 一行未动**，两边仍然各跑各的实现。
+> 这不是遗漏，而是刻意的：阶段 2 建立的影子对比（旧 `deal()` vs 新流水线，逐决策点比较）
+> 只有在两侧实现独立时才有意义。v1 之后影子对比**依然全绿**，这恰好成为
+> "零行为变化"最强的证据——比任何逐字段断言都硬。
+> 阶段 2 第 5 步删掉旧路径时，这份重复才会消失。
+>
+> 同时按本阶段的验收要求把 `group-unsupported-segments.json` 扩到了
+> `record` / `video` / `forward` / `poke` 四段，并新增一条影子场景专门盯它。
 
 ### 3.3 会话唯一键 `umo`
 

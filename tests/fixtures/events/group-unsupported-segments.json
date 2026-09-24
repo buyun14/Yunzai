@@ -10,6 +10,8 @@
   "message": [
     { "type": "text", "text": "#复读 " },
     { "type": "record", "file": "https://example.invalid/voice.silk" },
+    { "type": "video", "file": "https://example.invalid/clip.mp4" },
+    { "type": "forward", "id": "forward-1" },
     { "type": "poke", "id": "-1" }
   ],
   "sender": { "user_id": 10001, "nickname": "测试用户", "card": "测试用户" },

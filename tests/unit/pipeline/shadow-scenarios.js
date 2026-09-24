@@ -475,6 +475,20 @@ export const SCENARIOS = [
     ],
   },
   {
+    // 阶段 4 v1 的边界：``record`` / ``video`` / ``forward`` / ``poke`` 四个段两边都不认识。
+    // 新侧现在会把它们收进 `e.components`，但**旧字段与决策序列必须与旧侧完全一致**。
+    name: "未识别段类型不影响旧字段与决策",
+    fixture: "group-unsupported-segments",
+    build: record => [
+      entry(
+        "复读机",
+        { rule: [{ reg: /复读/, fnc: "onMsg" }] },
+        { onMsg: async () => true },
+        record,
+      ),
+    ],
+  },
+  {
     name: "notice 事件同样走流水线",
     fixture: "notice-group-increase",
     build: record => [entry("入群提醒", {}, { onMsg: async () => true }, record)],

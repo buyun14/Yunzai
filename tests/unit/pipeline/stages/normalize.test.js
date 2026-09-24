@@ -77,8 +77,8 @@ describe("NormalizeStage：消息解析", () => {
     expect(JSON.parse(String(event.msg))).toMatchObject({ desc: "测试卡片" })
   })
 
-  it("未识别的段类型（record / poke）被忽略，且不影响已解析字段", async () => {
-    // 这是改造前的既有行为：未识别类型静默丢弃。要改变它属于阶段 4 的统一消息模型议题。
+  it("未识别的段类型（record / video / forward / poke）不影响旧字段", async () => {
+    // 改造前的既有行为：未识别类型不参与旧字段派生。
     const { event } = await normalize("group-unsupported-segments")
     expect(event.msg).toBe("#复读")
     // record 不会被当成 file
@@ -87,6 +87,18 @@ describe("NormalizeStage：消息解析", () => {
     expect(event).not.toHaveProperty("poke")
     // recall 是 markScope 依据 message_id 挂上的，与段类型无关
     expect(typeof event.recall).toBe("function")
+  })
+
+  it("未识别的段类型仍然进了 components（阶段 4 v1 起不再静默丢弃）", async () => {
+    const { event } = await normalize("group-unsupported-segments")
+    expect(
+      /** @type {Array<{ type: string }>} */ (event.components).map(item => item.type),
+    ).toEqual(["plain", "record", "video", "forward", "poke"])
+  })
+
+  it("没有 message 的事件（通知类）也拿到空的 components", async () => {
+    const { event } = await normalize("notice-group-increase")
+    expect(event.components).toEqual([])
   })
 
   it("文本的空白与前导符号被归一化", async () => {
