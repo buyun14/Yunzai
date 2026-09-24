@@ -1,10 +1,17 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from "vue"
-import { getControlCapabilities, getReady, getStatus, postRestart, postStop } from "@/api/client"
-import type { ControlCapabilities, Status } from "@/api/types"
+import {
+  getControlCapabilities,
+  getReady,
+  getRecentLogs,
+  getStatus,
+  postRestart,
+  postStop,
+} from "@/api/client"
+import type { ControlCapabilities, LogLine, Status } from "@/api/types"
 import PanelState from "@/components/PanelState.vue"
 import { useAsync } from "@/composables/useAsync"
-import { describeOnline, formatDuration, formatMB } from "@/utils/format"
+import { describeOnline, formatDuration, formatMB, formatTime, levelColor } from "@/utils/format"
 
 /**
  * 状态总览。
@@ -67,7 +74,11 @@ function syncTimer(): void {
     timer = undefined
   }
   if (!autoRefresh.value) return
-  timer = window.setInterval(() => void refresh(), AUTO_REFRESH_MS)
+  // 状态与最近日志一起刷：两个不同的频率只会让页面上出现"一半新一半旧"的错觉
+  timer = window.setInterval(() => {
+    void refresh()
+    void loadRecent()
+  }, AUTO_REFRESH_MS)
 }
 syncTimer()
 onUnmounted(() => timer !== undefined && clearInterval(timer))
@@ -75,6 +86,7 @@ onUnmounted(() => timer !== undefined && clearInterval(timer))
 /** 手动刷新顺带把自动刷新的节奏重置，避免刚点完又立刻被定时器刷一次 */
 function manualRefresh(): void {
   void refresh()
+  void loadRecent()
   syncTimer()
 }
 
@@ -149,6 +161,33 @@ async function waitForBack(): Promise<void> {
   }
   actionNotice.value = "已受理，但 60 秒内没等到它回来——请查看日志确认"
 }
+
+/* ------------------------------------------------------------------ *
+ *  最近日志摘要
+ * ------------------------------------------------------------------ */
+
+/**
+ * 最近几条日志。
+ *
+ * 用**轮询**而不是接 SSE：首页只要"最近发生了什么"，为它开一条长连接是浪费，
+ * 而且失败模式会退化成"这块不更新"而不是留下半死不活的连接。
+ * 只取 20 条，比日志页轻得多。
+ */
+const recent = ref<LogLine[]>([])
+const recentError = ref("")
+
+async function loadRecent(): Promise<void> {
+  try {
+    const data = await getRecentLogs(20)
+    recent.value = data.lines.slice().reverse()
+    recentError.value = ""
+  } catch (err) {
+    // 这块失败不该影响整页：状态数据还在，摘要空着并说明原因即可
+    recentError.value = err instanceof Error ? err.message : String(err)
+  }
+}
+// 立即拉一次，不然这块要等第一个自动刷新周期才有内容
+void loadRecent()
 
 const cards = computed(() => {
   const s = data.value
@@ -358,6 +397,35 @@ const lastUpdated = computed(() =>
             </v-table>
           </v-card-text>
         </v-card>
+        <!-- 最近日志：首页一眼看到"刚才发生了什么"，不用切到日志页 -->
+        <v-card variant="outlined" class="mt-4" data-testid="recent-logs">
+          <v-card-item prepend-icon="mdi-text-box-outline" title="最近日志">
+            <template #append>
+              <v-btn variant="text" size="small" to="/logs" append-icon="mdi-arrow-right">
+                全部日志
+              </v-btn>
+            </template>
+          </v-card-item>
+          <v-divider />
+          <v-card-text>
+            <div v-if="recentError" class="text-medium-emphasis">
+              取不到最近日志：{{ recentError }}
+            </div>
+            <div v-else-if="!recent.length" class="text-medium-emphasis">
+              还没有日志。宿主有输出时这里会出现。
+            </div>
+            <div v-else class="recent-log-list">
+              <div v-for="(line, i) in recent" :key="i" class="recent-log-line">
+                <span class="log-time">{{ formatTime(line.time) }}</span>
+                <v-chip :color="levelColor(line.level)" size="x-small" variant="flat">
+                  {{ line.level }}
+                </v-chip>
+                <span class="text-medium-emphasis recent-log-cat">{{ line.category }}</span>
+                <span class="recent-log-msg">{{ line.message }}</span>
+              </div>
+            </div>
+          </v-card-text>
+        </v-card>
       </template>
     </PanelState>
   </div>
@@ -382,3 +450,43 @@ const lastUpdated = computed(() =>
     </v-card>
   </v-dialog>
 </template>
+
+<style scoped>
+/* 日志行用等宽字体并与日志页观感一致，但更紧凑（首页不需要逐条细读） */
+.recent-log-list {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.recent-log-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+.recent-log-line:last-child {
+  border-bottom: none;
+}
+
+.log-time {
+  color: rgb(var(--v-theme-on-surface-variant));
+  flex: 0 0 auto;
+}
+
+.recent-log-cat {
+  flex: 0 0 auto;
+}
+
+/* 长消息不换行挤成一团：单行截断，完整内容去日志页看 */
+.recent-log-msg {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>

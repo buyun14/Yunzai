@@ -9,6 +9,7 @@ import {
   createControlCapabilitiesHandler,
   createRestartHandler,
 } from "../../../lib/web/api/control.js"
+import { LogStream } from "../../../lib/web/api/logs.js"
 import { createPluginToggleHandler } from "../../../lib/web/api/plugin-toggle.js"
 import { createPluginsHandler } from "../../../lib/web/api/plugins.js"
 import { createApiRouter, createReadyHandler } from "../../../lib/web/api/router.js"
@@ -149,6 +150,12 @@ function resOf() {
       res.body = body
       return res
     },
+    // Express 的 `res.json()`：有处理器用它，替身也得有——
+    // 缺了会在取样时报 "json is not a function"，而那个报错完全看不出是替身不全
+    json(body) {
+      res.body = JSON.stringify(body)
+      return res
+    },
   }
   return res
 }
@@ -236,6 +243,9 @@ function samplers() {
         query: {},
         body: { enabled: false },
       }),
+    // 首页摘要用的一次性日志快照（不是 SSE 那条）
+    "/api/v1/logs/recent": () =>
+      bodyOf(new LogStream().createRecentHandler(), { params: {}, query: {} }),
   }
 }
 
@@ -301,6 +311,8 @@ describe("契约与路由一致", () => {
       // 同路径两个方法：GET 读、PUT 写
       "/config/:name": ["get", "put"],
       "/logs": ["get"],
+      // 首页摘要用的一次性快照（与 /logs 的 SSE 是两条不同的路）
+      "/logs/recent": ["get"],
       // 进程控制（v3）。`/control` 是能力探测，两个动作是 POST
       "/control": ["get"],
       "/control/restart": ["post"],

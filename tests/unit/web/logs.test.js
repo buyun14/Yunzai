@@ -210,6 +210,38 @@ describe("LogStream.record：日志行", () => {
     expect(stream.buffer.map(line => line.message)).toEqual(["二", "三"])
   })
 
+  it("createRecentHandler：一次性快照，返回最近的 N 条（最新的在最后）", async () => {
+    const stream = new LogStream()
+    for (const message of ["一", "二", "三"]) stream.record(logEvent(message))
+    const base = await serve(stream)
+
+    const res = await fetch(`${base}/api/v1/logs/recent?limit=2`)
+    expect(res.status).toBe(200)
+    // 必须是 JSON，不是 SSE——首页要的是一次性快照
+    expect(res.headers.get("content-type")).toContain("application/json")
+
+    const body = await res.json()
+    expect(body.buffered).toBe(3)
+    // 顺序保持"时间里"的顺序，最新一条在数组末尾（由界面决定怎么显示）
+    expect(body.lines.map(line => line.message)).toEqual(["二", "三"])
+  })
+
+  it("createRecentHandler：limit 被夹到 backlog 以内", async () => {
+    const stream = new LogStream({ backlog: 2 })
+    for (const message of ["一", "二", "三"]) stream.record(logEvent(message))
+    const base = await serve(stream)
+
+    const body = await (await fetch(`${base}/api/v1/logs/recent?limit=9999`)).json()
+    // 只可能拿到缓冲里实际有的那些
+    expect(body.lines.length).toBe(2)
+  })
+
+  it("createRecentHandler：缓冲为空时返回空数组而不是报错", async () => {
+    const base = await serve(new LogStream())
+    const body = await (await fetch(`${base}/api/v1/logs/recent`)).json()
+    expect(body).toEqual({ buffered: 0, lines: [] })
+  })
+
   it("没有订阅者时不产生写入（面板关着就只维护缓冲）", () => {
     const stream = new LogStream()
     expect(() => stream.record(logEvent("无人订阅"))).not.toThrow()

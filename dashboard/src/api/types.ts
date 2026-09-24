@@ -245,3 +245,10 @@ export interface ControlAccepted {
   action: "restart" | "stop"
   message: string
 }
+
+/** `GET /api/v1/logs/recent` 的响应（首页摘要用的一次性快照） */
+export interface RecentLogs {
+  /** 服务端缓冲里现有多少条（受后端 backlog 限制） */
+  buffered: number
+  lines: LogLine[]
+}

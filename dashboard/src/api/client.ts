@@ -26,6 +26,7 @@ import type {
   Plugins,
   PluginToggleResult,
   Ready,
+  RecentLogs,
   Status,
 } from "./types"
 
@@ -207,6 +208,17 @@ export function putPlugin(
     { enabled },
     { method: "PUT", ...init },
   )
+}
+
+/**
+ * 取最近若干条日志的**一次性快照**（首页摘要用）。
+ *
+ * 与 `streamLogs` 的分工：首页只要"最近发生了什么"，为它开一条 SSE 长连接
+ * 是浪费（而且切走页面时的清理更容易出错）。这里用普通 GET + 轮询，
+ * 失败模式退化成"这块内容不更新"。
+ */
+export function getRecentLogs(limit = 20, init?: RequestInit): Promise<RecentLogs> {
+  return getJSON<RecentLogs>(`/logs/recent?limit=${encodeURIComponent(String(limit))}`, init)
 }
 
 /**

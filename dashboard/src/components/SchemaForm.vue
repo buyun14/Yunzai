@@ -45,6 +45,10 @@ const props = defineProps<{
   readOnlyKeys?: Record<string, string>
   /** 键名 → 该键标了 `raw`，本组件跳过 */
   rawKeys?: Record<string, boolean>
+  /** 改动过的顶层键，用来把那一项标出来 */
+  changedKeys?: Set<string>
+  /** 只渲染改动过的顶层键（复核改动时用） */
+  onlyChanged?: boolean
   /** 嵌套深度，仅用于缩进 */
   depth?: number
 }>()
@@ -55,6 +59,31 @@ const drafts = ref<Record<string, string>>({})
 /** 顶层字段列表 */
 function entriesOf(schema: SchemaField): Array<[string, SchemaField]> {
   return Object.entries(schema.properties ?? {})
+}
+
+/**
+ * 这一层要渲染的字段（受"只看改动"影响）。
+ *
+ * `onlyChanged` 只在**顶层**生效：嵌套对象里的叶子改了，它的父键整体算改动，
+ * 所以顶层筛一遍就够——再往每一层都筛会把"父键没变但子键变了"这种漏掉。
+ *
+ * @param schema 字段 schema
+ * @returns 字段列表
+ */
+function visibleEntries(schema: SchemaField): Array<[string, SchemaField]> {
+  const all = entriesOf(schema)
+  if (!props.onlyChanged || (props.depth ?? 0) > 0) return all
+  return all.filter(([key]) => props.changedKeys?.has(key))
+}
+
+/**
+ * 这个键是否被改过（用来标出来）。
+ *
+ * @param key 键名
+ * @returns 是否改动过
+ */
+function isChanged(key: string): boolean {
+  return props.changedKeys?.has(key) === true
 }
 
 /**
@@ -214,7 +243,7 @@ function displayOf(value: unknown): string {
 
 <template>
   <div>
-    <template v-for="[key, field] in entriesOf(schema)" :key="key">
+    <template v-for="[key, field] in visibleEntries(schema)" :key="key">
       <!-- raw：本组件不渲染，父组件会统一说明 -->
       <template v-if="rawKeys?.[key]"></template>
 
@@ -222,7 +251,7 @@ function displayOf(value: unknown): string {
       <v-text-field
         v-else-if="readOnlyReason(key)"
         :model-value="displayOf(model[key])"
-        :label="field.title || key"
+        :label="isChanged(key) ? `● ${field.title || key}` : field.title || key"
         :hint="readOnlyReason(key)"
         persistent-hint
         readonly
@@ -237,7 +266,7 @@ function displayOf(value: unknown): string {
       <div v-else-if="primaryType(field) === 'boolean'" class="mb-3">
         <v-switch
           :model-value="Boolean(valueOf(key, field))"
-          :label="field.title || key"
+          :label="isChanged(key) ? `● ${field.title || key}` : field.title || key"
           color="primary"
           density="comfortable"
           hide-details
@@ -253,7 +282,7 @@ function displayOf(value: unknown): string {
         v-else-if="enumOf(field)"
         :model-value="valueOf(key, field)"
         :items="enumOf(field)!.map(v => ({ title: String(v), value: v }))"
-        :label="field.title || key"
+        :label="isChanged(key) ? `● ${field.title || key}` : field.title || key"
         :hint="field.description"
         persistent-hint
         density="comfortable"
@@ -266,7 +295,7 @@ function displayOf(value: unknown): string {
       <v-textarea
         v-else-if="primaryType(field) === 'array'"
         :model-value="arrayText(key, field)"
-        :label="field.title || key"
+        :label="isChanged(key) ? `● ${field.title || key}` : field.title || key"
         :hint="field.description ? `${field.description}（每行一项）` : '每行一项'"
         persistent-hint
         rows="3"
@@ -280,7 +309,7 @@ function displayOf(value: unknown): string {
       <v-text-field
         v-else-if="primaryType(field) === 'integer' || primaryType(field) === 'number'"
         :model-value="valueOf(key, field)"
-        :label="field.title || key"
+        :label="isChanged(key) ? `● ${field.title || key}` : field.title || key"
         :hint="field.description"
         persistent-hint
         type="number"
@@ -291,10 +320,18 @@ function displayOf(value: unknown): string {
       />
 
       <!-- 嵌套对象：单独成块并递归 -->
-      <v-card v-else-if="primaryType(field) === 'object'" variant="outlined" class="mb-4">
+      <v-card
+        v-else-if="primaryType(field) === 'object'"
+        :color="isChanged(key) ? 'primary' : undefined"
+        :variant="isChanged(key) ? 'tonal' : 'outlined'"
+        class="mb-4"
+      >
         <v-card-item>
           <template #title>
-            <span class="text-body-2">{{ field.title || key }}</span>
+            <span class="text-body-2">
+              <v-icon v-if="isChanged(key)" size="x-small" icon="mdi-circle-small" class="mr-1" />
+              {{ field.title || key }}
+            </span>
           </template>
         </v-card-item>
         <v-card-text>
@@ -306,6 +343,7 @@ function displayOf(value: unknown): string {
             :model="objectValue(key, field)"
             :read-only-keys="readOnlyKeys"
             :raw-keys="rawKeys"
+            :changed-keys="changedKeys"
             :depth="(depth ?? 0) + 1"
           />
         </v-card-text>
@@ -315,7 +353,7 @@ function displayOf(value: unknown): string {
       <v-textarea
         v-else-if="field['x-widget'] === 'textarea'"
         :model-value="valueOf(key, field)"
-        :label="field.title || key"
+        :label="isChanged(key) ? `● ${field.title || key}` : field.title || key"
         :hint="field.description"
         persistent-hint
         rows="2"
@@ -328,7 +366,7 @@ function displayOf(value: unknown): string {
       <v-text-field
         v-else
         :model-value="valueOf(key, field)"
-        :label="field.title || key"
+        :label="isChanged(key) ? `● ${field.title || key}` : field.title || key"
         :hint="field.description"
         :type="field['x-widget'] === 'password' ? 'password' : 'text'"
         persistent-hint

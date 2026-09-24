@@ -425,6 +425,41 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
 
+  /api/v1/logs/recent:
+    get:
+      tags: [状态]
+      summary: 最近日志快照
+      description: |-
+        **一次性 JSON 快照**，给首页摘要用。与 `/api/v1/logs` 的 SSE 长连接刻意分开：
+
+        - SSE 一个页面开着就占一个订阅者；首页只想显示"最近发生了什么"、不需要逐条推送，
+          为它开长连接是浪费，而且切走页面时的清理更容易出错。
+        - 轮询的失败模式退化成"这块内容不更新"，不会留下半死不活的连接。
+
+        返回顺序是**时间正序**（最新一条在数组末尾），由界面决定怎么显示。
+        `limit` 会被夹在后端 backlog 以内。
+      operationId: logsRecent
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: 取多少条。缺省或非法时取上限
+          schema:
+            type: integer
+            minimum: 1
+            default: 100
+      responses:
+        "200":
+          description: 快照
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecentLogs"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
   /api/v1/logs:
     get:
       tags: [日志]
@@ -590,6 +625,36 @@ components:
         uptime:
           type: integer
           description: 进程运行秒数
+
+    RecentLogs:
+      type: object
+      required: [buffered, lines]
+      properties:
+        buffered:
+          type: integer
+          description: 服务端缓冲里现有多少条（受后端 backlog 限制，不代表历史总量）
+        lines:
+          type: array
+          description: "**时间正序**，最新一条在末尾"
+          items:
+            $ref: "#/components/schemas/LogLine"
+
+    LogLine:
+      type: object
+      required: [time, level, category, message]
+      properties:
+        time:
+          type: integer
+          description: 毫秒时间戳
+        level:
+          type: string
+          description: log4js 等级：TRACE/DEBUG/INFO/WARN/ERROR/FATAL/MARK
+        category:
+          type: string
+          description: 发日志的 logger 名（`message` 是默认 logger 的名字）
+        message:
+          type: string
+          description: 已去掉 ANSI 颜色码；对象会被序列化
 
     Status:
       type: object

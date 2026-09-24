@@ -251,6 +251,22 @@ const changeSummary = computed(() =>
 )
 
 /**
+ * 改动过的顶层键集合，给表单用来标出"这一项你动过"。
+ *
+ * 为什么值得单独传下去：一个文件可能有几十个键，用户在中间改了三个、
+ * 滚开去看了别的，回来就找不到自己改过哪里了。标出来之后"改了哪些"
+ * 一眼可见，不用去比对底部的摘要。
+ */
+const changedKeySet = computed(() => new Set(changedEntries.value.map(([key]) => key)))
+
+/**
+ * 只看改动的键。
+ *
+ * 大文件里改了两三个键、然后要在提交前复核一遍时，逐行扫一遍很费眼。
+ */
+const onlyChanged = ref(false)
+
+/**
  * 重新拉一次当前文件。
  *
  * 保存成功后要刷新：脱敏后的展示值、以及左侧清单里的差异条数都会变。
@@ -498,6 +514,8 @@ const currentSideValue = computed(() => {
                   :model="draft"
                   :read-only-keys="readOnlyKeys"
                   :raw-keys="rawKeysForForm"
+                  :changed-keys="changedKeySet"
+                  :only-changed="onlyChanged"
                 />
                 <div v-else class="text-medium-emphasis">
                   这个文件没有 schema（{{ unmodeledReason || "未建模" }}），只能直接编辑 yaml。
@@ -517,6 +535,16 @@ const currentSideValue = computed(() => {
                     {{ item.key }}: {{ item.from }} → {{ item.to }}
                   </v-chip>
                   <v-spacer />
+                  <!-- 大文件里改了几个键，复核时逐行扫很费眼 -->
+                  <v-switch
+                    v-model="onlyChanged"
+                    data-testid="config-only-changed"
+                    label="只看改动"
+                    color="primary"
+                    density="compact"
+                    hide-details
+                    :disabled="!changedEntries.length"
+                  />
                   <v-btn variant="text" size="small" @click="cancelEdit()">取消</v-btn>
                   <v-btn
                     data-testid="config-save"

@@ -39,6 +39,20 @@ const keyword = ref("")
 /** 关掉的等级。默认全开——但 `DEBUG`/`TRACE` 噪音大，初始就关掉更实用。 */
 const hiddenLevels = ref<string[]>(["DEBUG", "TRACE"])
 
+/**
+ * 暂停（冻结视图）。
+ *
+ * ⚠️ **不断开连接**——这是关键。断开重连只能拿到后端最近 200 条的回放，
+ * 暂停期间的日志会凭空消失；而"暂停"的用意恰恰是"让我看清眼前这些，
+ * 别刷"或者"我去查个别的东西"。所以这里继续收，只是不往视图里放；
+ * 恢复时把缓冲整段接上去，一条都不丢。
+ */
+const paused = ref(false)
+/** 暂停期间收到的行。恢复时并入 `lines` */
+const pending = ref<LogLine[]>([])
+/** 暂停期间被丢弃的行数（超出 MAX_LINES 的） */
+const droppedWhilePaused = ref(0)
+
 let stop: (() => void) | null = null
 let clock: number | undefined
 let pingWatch: number | undefined
@@ -92,6 +106,17 @@ function connect(): void {
         lastPingAt.value = Date.now()
       },
       onLine: line => {
+        // 暂停时不往视图里放，但要继续收——断开重连会丢日志（见 `paused` 的注释）
+        if (paused.value) {
+          pending.value.push(line)
+          // 缓冲同样限长，否则"暂停一晚上"会把标签页吃爆
+          if (pending.value.length > MAX_LINES) {
+            const overflow = pending.value.length - MAX_LINES
+            pending.value.splice(0, overflow)
+            droppedWhilePaused.value += overflow
+          }
+          return
+        }
         lines.value.push(line)
         // 前端的限长：超出就丢最旧的（与后端回放缓冲同样的策略）
         if (lines.value.length > MAX_LINES) lines.value.splice(0, lines.value.length - MAX_LINES)
@@ -120,6 +145,69 @@ function reconnect(): void {
 
 function clearLines(): void {
   lines.value = []
+  pending.value = []
+  droppedWhilePaused.value = 0
+}
+
+/**
+ * 切换暂停。
+ *
+ * 恢复时把缓冲整段接上去（而不是逐条），这样只触发一次渲染，
+ * 暂停期间攒了几千条也不会卡住。
+ */
+function togglePause(): void {
+  if (paused.value) {
+    if (pending.value.length) {
+      lines.value.push(...pending.value)
+      const overflow = lines.value.length - MAX_LINES
+      if (overflow > 0) lines.value.splice(0, overflow)
+      pending.value = []
+    }
+    paused.value = false
+    // 恢复后贴回底部（暂停期间用户可能上滚过）
+    autoScroll.value = true
+    void nextTick(() => {
+      const el = viewport.value
+      if (el) el.scrollTop = el.scrollHeight
+    })
+    return
+  }
+  paused.value = true
+}
+
+/**
+ * 导出当前**过滤后**的日志为文本文件。
+ *
+ * 导出的是 `shown`（屏幕上看到的这些），不是 `lines`——用户在搜索框里筛过之后
+ * 点导出，期待的是筛出来的结果，把没显示的也导出去会让人以为过滤没生效。
+ *
+ * 文本格式与终端观感对齐：`时间 [等级] 分类 消息`，等级左对齐补齐，
+ * 这样导出的文件用编辑器打开也是一列一列的。
+ */
+function exportLines(): void {
+  if (!shown.value.length) return
+  const text = shown.value
+    .map(line => {
+      const level = line.level.toUpperCase().padEnd(5)
+      return `${new Date(line.time).toISOString()} [${level}] ${line.category} ${line.message}`
+    })
+    .join("\n")
+
+  // 文件名带本地时间，避免下载目录里一堆同名文件互相覆盖。
+  // 用 `toISOString()` 会在跨时区时给出"昨天"的日期，所以这里按本地时间拼
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `yunzai-logs-${stamp}.txt`
+  a.click()
+  // ⚠️ 不能立刻 revoke。实测：同步 revoke 会让下载取不到数据，而且**不报错**，
+  // 表现为"点了导出、什么都没发生、下载目录里也没有文件"。
+  // 下载是异步去取 blob 的，所以要等它取完再释放。
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
 
 function toggleLevel(level: string): void {
@@ -202,7 +290,28 @@ const connectionColor = computed(() => {
         color="primary"
         density="compact"
         hide-details
+        :disabled="paused"
       />
+      <v-btn
+        data-testid="logs-pause"
+        :color="paused ? 'warning' : undefined"
+        :variant="paused ? 'flat' : 'tonal'"
+        size="small"
+        :prepend-icon="paused ? 'mdi-play' : 'mdi-pause'"
+        @click="togglePause()"
+      >
+        {{ paused ? `继续${pending.length ? `（+${pending.length}）` : ""}` : "暂停" }}
+      </v-btn>
+      <v-btn
+        data-testid="logs-export"
+        variant="tonal"
+        size="small"
+        prepend-icon="mdi-download"
+        :disabled="!shown.length"
+        @click="exportLines()"
+      >
+        导出
+      </v-btn>
       <v-btn variant="tonal" size="small" prepend-icon="mdi-broom" @click="clearLines()">
         清空
       </v-btn>
@@ -222,6 +331,22 @@ const connectionColor = computed(() => {
         <v-btn variant="text" size="small" prepend-icon="mdi-refresh" @click="reconnect()">
           重试
         </v-btn>
+      </template>
+    </v-alert>
+
+    <!-- 暂停态必须有明显提示：否则"日志怎么不更新了"会被当成又坏了 -->
+    <v-alert
+      v-if="paused"
+      data-testid="logs-paused-notice"
+      type="warning"
+      variant="tonal"
+      density="comfortable"
+      class="mb-4"
+    >
+      视图已暂停（<strong>连接没断</strong>，日志仍在后台累积）。 恢复后会一次性补上这
+      {{ pending.length }} 条。
+      <template v-if="droppedWhilePaused">
+        超过 {{ MAX_LINES }} 条上限的 {{ droppedWhilePaused }} 条已被丢弃。
       </template>
     </v-alert>
 

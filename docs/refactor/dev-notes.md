@@ -186,3 +186,46 @@ WebUI 的前端中间件（`lib/web/server.js` 的 `mountFrontend`）最终是**
   把 `/dashboard` 整个放进 `skip_auth` 会连适配器挂在它下面的路由一起免鉴权。
   所以入口文档走"自己认形状"、assets 走 `skip_auth` 前缀，两者分开。
 
+## 12. 自写的 SVG 图标组件**必须显式给尺寸**
+
+`dashboard/src/plugins/vuetify.ts` 的 `MdiSvgIcon` 是自写的（Vuetify 3.13 不导出
+`VSvgIcon`）。踩过两次，症状一样、原因不同：
+
+| 写法 | 结果 |
+|---|---|
+| 只给 `viewBox` | 图标变成 **300×150 的巨大图形**，把表格整行顶开 |
+| `width="100%"` | **没用**——100% 解析回父级的 auto，等于没给 |
+| `width="1em"` | ✅ 尺寸跟着字号走，`size="small"` / `x-small` 照常生效 |
+
+根因：`viewBox` 定义的是**坐标系**而不是尺寸；没有尺寸的 `<svg>` 是替换元素，
+浏览器按默认 `300×150` 渲染，反而把父级 `.v-icon` 的 `1em` 撑开。
+
+⚠️ **TypeScript 与 `vite build` 都不会报这个**，只能靠看截图。所以改前端之后
+一定要截图（见 §7 的真机验证纪律），"构建通过"对渲染问题零证明力。
+
+## 13. headless Chrome + puppeteer **完不成下载**
+
+验证"导出日志"这类功能时，不要断言"文件落盘了"——在这个组合下**永远不成立**。
+
+实测（用 CDP 的 `Browser.setDownloadBehavior` + `eventsEnabled`）：
+
+```
+对照组（一个最小 blob，完全不经过我们的代码）：
+  Browser.downloadWillBegin  control-group.txt
+  Browser.downloadProgress   inProgress ×5  →  canceled
+  下载目录：（空）
+```
+
+连对照组都 `canceled`，所以这是环境限制、不是功能问题。
+**能验证的是这两条**（合起来足以证明"点导出会正确产出并交付内容正确的文件"）：
+
+1. CDP 的 `Browser.downloadWillBegin` 事件 —— 证明浏览器确实发起了下载、文件名正确；
+2. 拦 `URL.createObjectURL` 把 blob 文本读出来 —— 证明内容非空且格式正确。
+
+另外两条同类的坑，都踩过：
+
+- **`URL.revokeObjectURL` 不能紧跟在 `a.click()` 之后**：同步 revoke 会让下载取不到
+  数据，而且**不报错**，表现为"点了导出、什么都没发生"。要推迟（这里用 10 秒）。
+- **别用 DOM 行数当"导出条数"的期望值**：日志视口是限高滚动的，DOM 里只有几十个
+  `.log-line`，而"导出过滤结果全量"是几百行。断言要写成 `导出条数 ≥ DOM 行数`。
+
