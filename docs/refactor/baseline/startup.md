@@ -311,6 +311,22 @@ typeof=object | 无.logger | 有.blue | 构造器=Object
 机制（vite 的 SSR 转换？chalk 在 SSR 下的行为？）未查明，暂不投入——
 它不影响生产，且已有稳定绕法。
 
+### O7：私聊消息落进同一个「群冷却」桶里（键是字符串 `"undefined"`）
+
+**现象**：`RateLimitCheckStage` 的早退条件是 `!event.message || event.isPrivate`，
+而 `isPrivate` 只有 `NormalizeStage` 才赋值——本阶段在归一化**之前**跑（位置敏感，
+见 `stage-order.js`），所以私聊消息到这里时 `isPrivate === undefined`，**不会早退**，
+会继续走到 `config.groupCD && this.groupCD[event.group_id]`。
+私聊事件没有 `group_id`，于是键是字符串 `"undefined"`：
+**同一个档案下的所有私聊共用同一个群冷却桶**，只要其中一个私聊触发了群冷却，
+冷却期内其它私聊的每条消息都会被拦。
+
+**为什么现在不改**：阶段 4 v2 把 `singleCD` / `msgThrottle` 的键换成了 `umo`，
+但 `groupCD` 这一处**故意保留原键**——换成 `umo` 会顺带改掉上面这条行为，
+而“私聊到底该不该走群冷却”是另一个问题（若结论是“不该走”，改动比换键更大：
+要么把私聊从这里剔除，要么把 `isPrivate` 的赋值提前，后者会牵连限流时序契约）。
+登记在此，等有真实私聊流量再定。
+
 ---
 
 ## 4. 未采集项与替代方案

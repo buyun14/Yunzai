@@ -1,3 +1,4 @@
+import { umoOf } from "../../../lib/message/umo.js"
 import { makePluginEntry } from "../../helpers/pipeline.js"
 
 /**
@@ -18,6 +19,34 @@ import { makePluginEntry } from "../../helpers/pipeline.js"
 /** 样本里的固定值 */
 const GROUP_ID = 67890
 const USER_ID = 10001
+const SELF_ID = 12345
+
+/**
+ * 预置限流状态时的两套键。
+ *
+ * 阶段 4 v2 把 `singleCD` / `msgThrottle` 的键换成了 `umo`，而旧 `PluginsLoader`
+ * 仍在用旧格式——影子对比要求两侧“看到同样的预置状态”，所以两套键都放上：
+ * 每侧只会查自己那一个（旧键是 `${group_id}.${user_id}`，新键是 `${umo}.${user_id}`）。
+ *
+ * 把两套键摆在一起也顺便固定了它们的一一对应关系。
+ */
+const LEGACY_SINGLE_KEY = `${GROUP_ID}.${USER_ID}`
+const UMO_SINGLE_KEY = `${umoOf({
+  adapter_id: "QQ",
+  self_id: SELF_ID,
+  message_type: "group",
+  group_id: GROUP_ID,
+  user_id: USER_ID,
+})}.${USER_ID}`
+
+const LEGACY_THROTTLE_KEY = `${SELF_ID}:${USER_ID}:#复读`
+const UMO_THROTTLE_KEY = `${umoOf({
+  adapter_id: "QQ",
+  self_id: SELF_ID,
+  message_type: "group",
+  group_id: GROUP_ID,
+  user_id: USER_ID,
+})}:${USER_ID}:#复读`
 
 /**
  * 造一个条目，并把原型上的方法包一层记录。
@@ -395,13 +424,13 @@ export const SCENARIOS = [
   {
     name: "单人冷却生效时拦截",
     fixture: "group-command",
-    seed: { singleCD: { [`${GROUP_ID}.${USER_ID}`]: true } },
+    seed: { singleCD: { [LEGACY_SINGLE_KEY]: true, [UMO_SINGLE_KEY]: true } },
     build: record => [entry("复读机", { rule: [ECHO_RULE] }, { onMsg: async () => true }, record)],
   },
   {
     name: "同文去重生效时拦截",
     fixture: "group-command",
-    seed: { msgThrottle: { "12345:10001:#复读": true } },
+    seed: { msgThrottle: { [LEGACY_THROTTLE_KEY]: true, [UMO_THROTTLE_KEY]: true } },
     build: record => [entry("复读机", { rule: [ECHO_RULE] }, { onMsg: async () => true }, record)],
   },
   {

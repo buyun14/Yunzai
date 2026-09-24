@@ -144,6 +144,32 @@ em(name = "", data = {}) {
 - 会话级配置、`Runtime` 状态、`lib/plugins/plugin.js` 的 `conKey()` 统一改用它；
 - 日志中固定输出 `umo`，便于跨账号排查。
 
+> **落地情况（阶段 4 v2，2026-09-24）。**
+>
+> 已落地：`lib/message/umo.js`（唯一实现，纯函数）、`NormalizeStage` 产出 `e.umo`、
+> `RateLimitCheckStage` / `RateLimitCommitStage` 的 `singleCD` 与 `msgThrottle` 键
+> 改为 `umo` 前缀。
+>
+> 未落地，按 §7 风险表"先在两处落地、其余按需推进"处理：
+>
+> | 待办 | 为什么不现在做 |
+> |---|---|
+> | `groupCD` 的键 | 换成 `umo` 会顺带改掉"私聊共用同一个群冷却桶"这个行为，得先决定私聊该不该走群冷却（见 `baseline/startup.md` O7） |
+> | `conKey()`（`lib/plugins/plugin.js`） | 它定义的是"会话状态放在哪个槽"，属于阶段 5（持久化与配置）的议题；而且它的格式里还有插件名一段，与 `umo` 不是简单替换关系 |
+> | `Runtime` 的会话键 | 同上，归阶段 5 |
+> | 日志里固定输出 `umo` | 会改变日志文本，而 `e.logText` 是插件可见面；要改得连同日志格式一起决定 |
+>
+> 键迁移顺带修掉的两处行为（都是旧键空间不一致导致的，详见
+> `rate-limit-check.js` 的类注释）：
+>
+> 1. 同一个人在不同群发同一句话，1 秒内第二条不再被误判为重复（旧 `msgThrottle` 键里没有群号）；
+> 2. 私聊的 `singleCD` 从"同一档案下所有私聊共用一套"变成"每个对端一套"
+>    （旧键是 `undefined.${user_id}`）。
+>
+> 这两处都写成了定点单测（`tests/unit/pipeline/stages/rate-limit.test.js`）。
+> ⚠️ 影子对比**证明不了**它们是对的——旧侧本来就带这两个行为，
+> 对比只能确认"没有其他意外差异"。
+
 ### 3.4 适配器注册表与能力表
 
 保持 `Bot.adapter` 为数组（L0 冻结，7 个适配器与第三方适配器都依赖 `push`），**增量**增加：

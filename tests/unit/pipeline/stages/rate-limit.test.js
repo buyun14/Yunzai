@@ -184,6 +184,33 @@ describe("RateLimitCheckStage + CommitStage：冷却", () => {
     expect(pipeline.ctx.isStopped(second)).toBe(true)
   })
 
+  it("singleCD 的键是 umo 前缀（会话 + 用户）", async () => {
+    // 阶段 4 v2 起键从 `${group_id}.${user_id}` 换成 `${umo}.${user_id}`。
+    // 这里逐字断言，是为了让"改键"这件事必须显式过一遍测试。
+    const pipeline = await setup({ groups: { 67890: { groupCD: 0, singleCD: 2000 } } })
+    await run("group-command", { overrides: { only_reply_at: 1 } }, pipeline)
+    expect(Object.keys(pipeline.check.singleCD)).toEqual(["QQ:12345:group:67890.10001"])
+  })
+
+  it("同一个人在不同群发同一句话不再被误去重（umo 键含群号）", async () => {
+    // 阶段 4 v2 顺手修掉的行为：旧键是 `${self_id}:${user_id}:${raw_message}`，
+    // 里面没有群号，于是"同一个人换一个群发同样的话"会被判成重复。
+    const pipeline = await setup({ groups: { 67890: { groupCD: 0, singleCD: 0 } } })
+
+    const first = await run("group-command", {}, pipeline)
+    expect(pipeline.ctx.isStopped(first)).toBe(false)
+
+    const otherGroup = await run("group-command", { overrides: { group_id: 11111 } }, pipeline)
+    expect(pipeline.ctx.isStopped(otherGroup)).toBe(false)
+  })
+
+  it("同一个群里的同文仍然被去重（防止上面那条修过头）", async () => {
+    const pipeline = await setup({ groups: { 67890: { groupCD: 0, singleCD: 0 } } })
+    await run("group-command", {}, pipeline)
+    const second = await run("group-command", {}, pipeline)
+    expect(pipeline.ctx.isStopped(second)).toBe(true)
+  })
+
   it("群冷却关闭时不写表", async () => {
     const pipeline = await setup({ groups: { 67890: { groupCD: 0, singleCD: 0 } } })
     await run("group-command", { overrides: { only_reply_at: 1 } }, pipeline)
