@@ -168,7 +168,10 @@ export class add extends plugin {
     const obj = {}
     for (const [k, v] of messageMap[this.group_id]) obj[k] = v
 
-    await fs.writeFile(`${this.path}${this.group_id}.json`, JSON.stringify(obj, "", "\t"))
+    // 第二个参数原写作 `""`：它既不是函数也不是数组，按规范会被**忽略**，
+    // 所以一直是个无声的无效实参（标准写法是 null）。改成 null 行为完全一致，
+    // 同时让返回类型确定为 string（原来 TS 按重载推断对不上）。
+    await fs.writeFile(`${this.path}${this.group_id}.json`, JSON.stringify(obj, null, "\t"))
   }
 
   async saveFile(data) {

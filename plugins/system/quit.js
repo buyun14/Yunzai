@@ -16,7 +16,9 @@ export class quit extends plugin {
     if (!other.autoQuit) return false
 
     const gml = await this.e.group.getMemberMap()
-    if ((!gml) instanceof Map) return false
+    // 原文是 `if ((!gml) instanceof Map)`：对布尔值做 instanceof 恒为 false，
+    // 也就是说这个守卫**从来没生效过**（已登记为 D8）。按本意改成判断 gml 本身。
+    if (!(gml instanceof Map)) return false
 
     /** 判断主人邀请不退群 */
     for (const qq of cfg.masterQQ)

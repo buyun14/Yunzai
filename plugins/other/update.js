@@ -201,8 +201,10 @@ export class update extends plugin {
 
     uping = true
     await this.runUpdate()
-    for (let plugin of await fs.readdir("plugins")) {
-      plugin = await this.getPlugin(plugin)
+    // 拆成两个名字：原写法把 `plugin` 先当目录名（string）再当 getPlugin 的结果
+    // （string | false），于是 `=== false` 在类型上“不可能成立”、赋值也不兼容。
+    for (const dir of await fs.readdir("plugins")) {
+      const plugin = await this.getPlugin(dir)
       if (plugin === false) continue
       await this.runUpdate(plugin)
     }
@@ -239,7 +241,9 @@ export class update extends plugin {
 
     const msg = [`${plugin || "TRSS-Yunzai"} 更新日志，共${log.length}条`, log.join("\n\n")]
     const end = await this.getRemoteUrl(
-      (await this.getRemoteBranch(false, plugin)).remote,
+      // 传 false 时 getRemoteBranch 返回的是 { remote, branch }（另一个分支才返回字符串），
+      // 类型上是联合，这里按实际分支断言
+      /** @type {{ remote: any }} */ (await this.getRemoteBranch(false, plugin)).remote,
       true,
       plugin,
     )

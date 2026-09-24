@@ -32,7 +32,9 @@ export class master extends plugin {
 
   async edit(file, key, value) {
     const doc = YAML.parseDocument(await fs.readFile(file, "utf8"))
-    const values = doc.get(key)
+    // doc.get 的类型是 unknown（yaml 的通用取值），而这里拿到的是集合节点，
+    // 要用它的 items / add
+    const values = /** @type {any} */ (doc.get(key))
     if (values) {
       if (values.items.some(item => item.value == value)) return
       values.add(value)
