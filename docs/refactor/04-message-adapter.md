@@ -92,11 +92,17 @@ em(name = "", data = {}) {
 
 | 文件 | 职责 |
 |---|---|
-| `lib/message/component.js` | `ComponentType` 枚举 + 各类组件的构造/判定 |
+| `lib/message/component.js` | `ComponentType` 枚举 + 单个 segment 的判定/构造 |
 | `lib/message/parse.js` | 原始 segment 数组 → `Component[]`（**含 `Unknown` 兜底，不再静默丢弃**） |
-| `lib/message/render.js` | `Component[]` → 各适配器可发送的 segment 数组 |
+| `lib/message/render.js` | `Component[]` → 各适配器可发送的 segment 数组；另提供“组件类型 → 能力名” |
 | `lib/message/legacy.js` | `Component[]` → 现有 `e.msg` / `e.img` / `e.atBot` / … 派生字段 |
-| `lib/message/capability.js` | 组件 × 适配器能力矩阵，供发送前校验 |
+| `lib/message/umo.js` | 会话唯一键（§3.3），纯函数 |
+| `lib/adapter/registry.js` | `Bot.adapter` 的只读索引（`byPath` / `byId` / `list`） |
+| `lib/adapter/capabilities.js` | 组件 × 适配器能力表，及“确定不支持的组件”清单 |
+
+> 与本节原表的两处偏差（已落地）：能力表放在 `lib/adapter/` 而不是
+> `lib/message/`——它按**适配器**索引，与消息形状无关；原表的
+> `lib/message/capability.js` 因此不再存在。`umo.js` 是原表没列、但 §3.3 需要的。
 
 ### 3.2 分层落地（关键：分三步，每步都零行为变化）
 
@@ -225,12 +231,29 @@ Bot.adapter.push({
 
 ## 6. 验收标准
 
-- [ ] `lib/message/parse.js` 单测覆盖上表全部组件类型 + `Unknown` 兜底，输入输出用 fixture 快照
-- [ ] `lib/message/legacy.js` 单测：给定 `Component[]`，派生的 `e.msg`/`e.img`/`e.atBot`/… 与 `dealEvent()` 改造前的输出一致（用阶段 0 录制样本）
-- [ ] 含 `record` / `video` / `forward` 的消息样本，改造前后 `e.msg` 与插件决策序列完全一致（证明"零行为变化"）
-- [ ] `umo` 单一实现，全仓无第二处拼接 `self_id` + `group_id` 的会话键
-- [ ] `Bot.adapter` 索引在 `push` 后立即可用，且有单测覆盖 `path` 去重
-- [ ] 能力表至少有 2 个适配器完成声明（建议 `OneBotv11` 与 `Satori`），且 `RespondStage` 能基于它拒绝不支持的发送
+- [x] `lib/message/parse.js` 单测覆盖上表全部组件类型 + `Unknown` 兜底
+      —— **偏离**：没用快照，改成逐条显式断言的表驱动用例（25 个）。理由：快照会把
+      “代码当时的输出”固化成事实，而这里的类型表是要与分册逐项对齐的契约，
+      新增一种组件时应该让测试红掉、而不是让快照静默更新
+- [x] `lib/message/legacy.js` 单测：给定 `Component[]`，派生的 `e.msg` / `e.img` / `e.atBot` / …
+      与改造前的输出一致 —— 直接用**旧路径 `PluginsLoader.dealEvent()`** 当金标准，
+      对全部 14 个事件样本逐字段比较（不是写死的期望值，而是两份实现对照）
+- [x] 含 `record` / `video` / `forward` 的消息样本，改造前后 `e.msg` 与插件决策序列完全一致
+      —— `group-unsupported-segments.json` 已扩到这四段（加 `poke`），
+      并新增一条影子场景，在真实 `deal()` 与新流水线之间对拍
+- [~] `umo` 单一实现；全仓无第二处拼接 `self_id` + `group_id` 的会话键
+      —— 实现与限流键已落地（§3.3 的落地表）；`conKey()`、`Runtime` 的会话键、
+      日志输出 `umo` 三项**留到阶段 5**，`loader.js` 旧路径里的几处要等阶段 2 第 5 步
+- [x] `Bot.adapter` 索引在 `push` 后立即可用，且有单测覆盖 `path` 去重
+      —— `lib/adapter/registry.js` + `tests/unit/adapter/registry.test.js`（15 个用例），
+      包含“被去重的那一个不会进索引”这条一致性断言
+- [~] 能力表至少有 2 个适配器完成声明，且 `RespondStage` 能基于它拒绝不支持的发送
+      —— 前件达成（`OneBotv11` 与 `Satori` 各自声明 `capabilities`）；后件**不实现**：
+      本仓没有 `RespondStage`，而且 §7 的风险表明确要求能力表“不用于决定是否发送”。
+      两句验收互相矛盾时按风险表（更安全的那一句）办，落成可查询 API
+      （`supports()`）与降级清单（`unsupportedComponents()`），**不拦截发送**
+- [x] 新增：能力表的“未知”必须与“不支持”区分开来——未登记的适配器一律返回 `undefined`，
+      且有用例锁住这一点（把“未知”当“不支持”是让功能静默消失的典型写法）
 
 ---
 

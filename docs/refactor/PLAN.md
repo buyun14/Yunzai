@@ -114,7 +114,7 @@ flowchart TD
 | 1 | 插件契约 | `01-plugin-contract.md` | `plugin.json` 元数据、`config.schema.json`、权限/平台/版本声明、旧基类自动合成 | 3 个内置插件完成迁移且行为不变 | ✅ 完成 |
 | 2 | 流水线 | `02-pipeline.md` | `Stage` 有序链 + `Scheduler` + `PipelineContext` + `EventBus` | `deal()` 各步骤全部下沉为 Stage，旧插件无感 | 🚧 9 个 Stage + `EventBus` 已切换并真机验证；剩第 5 步（清理旧路径） |
 | 3 | 工程化 | `03-engineering.md` | vitest 单测、`checkJs`、ESLint、husky + commitlint、覆盖率 | 核心模块覆盖率 ≥ 60% | ✅ 完成（覆盖率 95.22%；ESLint 与 typecheck 均已归零并转阻塞；共 355 个单测；CI 四条矩阵腿全绿） |
-| 4 | 消息与适配器 | `04-message-adapter.md` | `Component` 抽象、适配器注册表与能力表、会话唯一键 `umo` | Milky/Satori 走同一组件路径 | 未开始 |
+| 4 | 消息与适配器 | `04-message-adapter.md` | `Component` 抽象、适配器注册表与能力表、会话唯一键 `umo` | Milky/Satori 走同一组件路径 | ✅ 完成（v1/v2/v3 均落地；`umo` 已用于限流键，`conKey` 与 Runtime 的会话键留给阶段 5；能力表已声明 2 个适配器） |
 | 5 | 持久化与配置 | `05-persistence-config.md` | 幂等迁移、`config_version`、结构化备份导出 | 老配置/老库可自动升级并可回滚 | 未开始 |
 | 6 | WebUI | `06-webui.md` | Vue3 运维面板、OpenAPI 契约与客户端生成 | 可在 UI 内改配置并热生效 | 未开始 |
 | 7 | AI 能力 | `07-ai-capabilities.md` | Provider 注册表、Agent 循环、知识库 RAG | 按需启动，不作为前置依赖 | 未开始 |
@@ -169,11 +169,12 @@ flowchart TD
 - [x] 阶段 0-2：工具链与 CI 骨架（见 `00-prep.md`）
 - [x] 阶段 0-3：标定与诊断基线（启动基线已采集；事件 fixture 改为阶段 2 前置任务）
 - [x] 阶段 1：插件契约（`plugin.json` + 受控 schema + 版本闸门 + 契约注入）
-- [ ] 阶段 2：流水线（进行中——9 个 Stage + 影子运行 + `EventBus` 切换已完成并真机验证，
-      剩第 5 步清理旧路径，见 `02-pipeline.md` §7.1）
-- [ ] 阶段 3：工程化（进行中——覆盖率 95.22% 已入 CI、`smoke.yml` 已落地、
-      干净克隆可一次通过；剩第 8 步收紧静态分析基线，见 `03-engineering.md` §4/§5）
-- [ ] 阶段 4：消息与适配器
-- [ ] 阶段 5：持久化与配置
+- [ ] 阶段 2：流水线（**只剩第 5 步**——清理旧路径 `deal()` 与 `legacy_pipeline` 开关；
+      它需要浸泡期，等阶段 4 的 `lib/message/` 在真机上跑一段再动手，见 `02-pipeline.md` §7.1）
+- [x] 阶段 3：工程化（覆盖率 95.22% + `smoke.yml` + ESLint 0/0 与 typecheck 0 处均已入 CI 并阻塞；
+      首次真实 CI 曾四条矩阵腿全挂在 typecheck，根因是 `#miao` 的环境依赖，
+      修完后四条腿全绿，见 `03-engineering.md` §3.6/§5）
+- [x] 阶段 4：消息与适配器（v1 统一组件模型、v2 `umo` 会话键、v3 适配器注册表与能力表，见 `04-message-adapter.md`）
+- [ ] 阶段 5：持久化与配置（接手 `umo` 的剩余落点：`conKey()`、`Runtime` 会话键、日志输出）
 - [ ] 阶段 6：WebUI
 - [ ] 阶段 7：AI 能力（按需）
