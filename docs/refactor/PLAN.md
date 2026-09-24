@@ -2,7 +2,7 @@
 
 | 项 | 值 |
 |---|---|
-| 状态 | 规划完成，阶段 0 进行中 |
+| 状态 | 阶段 0-4 ✅、阶段 5 主体完成（剩两项刻意挂起，见 §9）；阶段 6 未开工。**进度以 §9 为准** |
 | 开发仓 | `E:\ProjectCollection\2026_9\Work\Yunzai` |
 | 参考仓（只读） | `E:\ProjectCollection\2026_9\Own\Yunzai`（完整上游历史） |
 | 基线 | `trss-yunzai` 3.1.3 @ upstream `69d5b3a` |
@@ -28,6 +28,7 @@
 | [`baseline/static-analysis.md`](./baseline/static-analysis.md) | 静态分析基线：ESLint / 类型检查 / 测试的真实结果与缺陷清单 | 阶段 0 产出 |
 | [`baseline/startup.md`](./baseline/startup.md) | 启动基线：冷/热启动耗时、插件与适配器数量、运行期观测 | 阶段 0 产出 |
 | [`99-compat-and-migration.md`](./99-compat-and-migration.md) | 兼容层设计与破坏性变更登记 | 贯穿全程 |
+| [`dev-notes.md`](./dev-notes.md) | 开发笔记：工具链与终端陷阱、本地绿而 CI 红的原因、真机验证纪律、文档同步检查单 | 贯穿全程 |
 
 ---
 

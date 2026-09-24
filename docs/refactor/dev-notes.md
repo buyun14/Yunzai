@@ -1,0 +1,112 @@
+# 开发笔记：工具、环境与陷阱
+
+> 各分册写的是「要改什么、怎么验收」；**这份写的是「改的时候会被什么咬到」**。
+>
+> 收录判据：① 这条知识会让人少走一次弯路；② 它不属于任何一份分册的主题。
+> 属于某个阶段的内容不要放这里——状态与结论只写在分册里。
+
+## 1. 命令行
+
+- 命令一律写成 `pnpm -C <仓库绝对路径> …` 或绝对路径。有些执行环境会**剥掉命令开头的
+  `cd "..."`**——`cd` 看起来执行了，其实没有，后续命令跑在别的目录里。
+- 不要把可能进入交互的命令接管道（如 `| Select-Object`）：管道会把提示藏起来，
+  执行环境就无法判断"它在等输入"。要过滤输出就先写文件再读。
+- 需要多行脚本时写临时文件（如 `.git/TMP_*.mjs`）再 `node` 它。PowerShell 里 `&&` 是
+  合法的链式运算符，出现在 `node -e "…"` 里会被它吃掉并报 `SyntaxError`。
+- 删代码时**不要按行号删**：先按内容定位，算完区间**自下而上**删，删完立刻 `node --check`。
+  终端回显在折行处会插入空格，照抄长行当锚点必然匹配不上。
+
+## 2. 提交
+
+- 提交信息正文里**不要用 `##` 标题**——commitlint 会把它当成 footer，报
+  `footer-leading-blank` 警告。
+- `lint-staged` 会在提交时对暂存文件补 `prettier --write` 与 `eslint`。所以"提交前
+  `pnpm lint` 红"未必代表提交后也红（尤其对刚由脚本/测试**生成**的文件，如
+  `baseline-snapshots.json`）。**但别把没查清的红当成噪音**：先看是哪个文件、谁生成的。
+- CI 的步骤是**顺序执行**的：某一步失败，后面几步不会执行。所以 `CI` 挂在 `typecheck`
+  时，四条腿上的 `pnpm test` 其实没跑过——不能据此认为测试通过。
+
+## 3. 查 CI 状态
+
+`gh` 已安装但**未登录**（不要跑 `gh auth login`：它是交互式的且涉及密钥）。
+仓库是公开的，直接用免鉴权 REST：
+
+```powershell
+$h = @{ "User-Agent" = "pwsh" }
+(Invoke-RestMethod "https://api.github.com/repos/buyun14/Yunzai/actions/runs?per_page=8" -Headers $h).workflow_runs |
+  ForEach-Object { "{0,-8} {1,-11} {2,-9} {3}" -f $_.name, $_.status, "$($_.conclusion)", $_.head_sha.Substring(0,7) }
+
+# 某个运行里的各 job：把 runs 换成 /actions/runs/<id>/jobs
+```
+
+## 4. 本地绿 ≠ CI 绿
+
+**`package.json` 的 `imports` 把 `#miao` 映射到 `plugins/miao-plugin/`，而它是 gitignore 的。**
+装了插件的机器能解析到文件，干净克隆与 CI 报 TS2307——同一句 `pnpm typecheck` 在两处结论不同。
+修法与复现方式见 `baseline/static-analysis.md` §3.6；类型声明在 `types/globals.d.ts`。
+
+同类风险：任何读 `plugins/miao-plugin/**`、`config/**`、`data/**` 的代码，在 CI 上都走另一条分支。
+
+因此验收必须是「**干净克隆跑全部四个门**」，而不是只跑 `pnpm test`：
+
+```powershell
+$dst = "$env:TEMP\yz-gate-check"
+git clone E:\ProjectCollection\2026_9\Work\Yunzai $dst
+pnpm -C $dst i
+pnpm -C $dst lint; pnpm -C $dst lint:eslint; pnpm -C $dst typecheck; pnpm -C $dst test
+```
+
+## 5. 覆盖率清单要跟着新模块走
+
+`vitest.config.js` 的 `CORE_MODULES` 是**白名单**：新模块不加进去就等于没被统计——
+覆盖率可以掉到 0 而 CI 照旧全绿。已经漏过三次（阶段 4 的 `lib/message` / `lib/adapter`、
+阶段 5 的 `lib/config/`）。清单位置、判据与"哪些目录不能加"见 `03-engineering.md` §3.4.1。
+
+## 6. `app.js` 顶层的控制流单测覆盖不到
+
+`switch (process.argv[2])` 的各个 CLI 分支只在真跑时才执行。曾经因此漏掉一个 bug：
+`process.stdout.write(text, () => process.exit())` 的回调是异步的，`break` 之后控制流继续
+走到 `new Bot()`——"只读报告"顺手把整个 bot 启了起来，新实例还会因端口占用向**正在运行的
+实例**发 `/exit`。
+
+**改 `app.js` 之后必须真跑一次那条命令，并确认端口没被监听。**
+
+## 7. 真机验证的纪律
+
+- **不要在仓库里写真实账号、群号、token**（本仓公开）。测试环境信息留在会话记忆里。
+- **归因只取本侧日志**（`[开始处理]` / `[完成N]` / `发送…`），不要用"群里出现了什么内容"
+  当判据：测试群里可能挂着第二个同类账号，会把噪声看成"镜像"
+  （见 `baseline/startup.md` O3）。
+- 起本地测试实例前**先探测端口 2536 是否空闲**：`Bot.serverEADDRINUSE()` 会向占用者发
+  `/exit`，把正在运行的实例挤掉。
+- `pnpm app stop` 的**退出码是 1**，与崩溃无法区分，只能用日志判断。
+
+## 8. 文档即状态
+
+状态只写在文档里——不写在提交信息里，也不写在聊天记录里。改完一个阶段同步三处：
+
+| 位置 | 同步什么 |
+|---|---|
+| `PLAN.md` §9 进度总表 | 勾选 + 一句话结论 |
+| 对应分册 | 顶部状态标注、`> 落地情况（日期）` 块、§ 验收清单勾选 |
+| `99-compat-and-migration.md` | 新增/淘汰 L1 适配与 BCR 编号；**偏离原计划的地方必须写清偏离了什么** |
+
+勾选验收项要附**证据**（文件路径 / 命令 / 实测输出）。没有证据的勾选等于把"没人核实过"
+伪装成"已验证过"，比不勾更危险。
+
+### 8.1 在制品也要落到文档里
+
+一次改动没做完就中断（换会话、换人、换天）时，**在制品状态写进对应分册**，
+不要只留在会话记忆里：
+
+```markdown
+> **在制品（2026-09-24，未提交）**：`loader.js` 已删完、`legacy.test.js` 已改完；
+> 还差 `shadow.test.js` 的旧侧用例。
+> **恢复成绿的命令**：`git checkout -- lib/plugins/loader.js tests/unit/message/legacy.test.js`
+```
+
+格式随场景，但三件事必须有：**已做到哪、还差什么、怎么退回去**。
+最后一条最重要——中断时的代码往往是红的，下一个人需要一条确定的复活路径。
+
+反向也成立：**发现文档与代码不一致时，先修文档**。一份过时的进度表会让下一个人
+（或下一次会话）基于错误前提做决策。

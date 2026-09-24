@@ -90,21 +90,53 @@ pnpm web             # 模板调试页（端口 8000，不是运维面板）
 ⚠️ 改前缀时**读写两端必须同时改**。这类改造最典型的失败是只改一半，而后果是静默的：
 `plugins/system/status.js` 读不到计数时返回 0，不会报错。
 
+### 8. 文档即状态
+
+状态只写在文档里。一个阶段（或一次有分量的改动）结束后必须同步三处：
+`PLAN.md` §9 进度总表、对应分册（`> 落地情况` 块 + 验收勾选）、
+`99-compat-and-migration.md`（L1 适配 / BCR 登记）。
+
+**勾选验收项要附证据**（文件路径 / 命令 / 实测输出）。没有证据的勾选等于把“没人核实过”
+伪装成“已验证过”。反过来，**发现文档与代码不一致时先修文档**——一份过时的进度表
+会让下一个人（或下一次会话）基于错误前提做决策。
+
+细节与检查单见 [`dev-notes.md`](docs/refactor/dev-notes.md) §8。
+
+## 遇到问题先查哪里
+
+本仓的知识分散在几处，按问题类型定位，不要重新推一遍：
+
+| 问题 | 去哪找 |
+|---|---|
+| 现在做到哪了 / 下一阶段是什么 | [`PLAN.md`](docs/refactor/PLAN.md) §9 进度总表 |
+| 某个设计为什么这么取舍 | 对应分册正文 + `PLAN.md` §8 的 ADR 表 |
+| 能不能改这个符号 / 路径 | `99-compat-and-migration.md` §1.1 的 L0 冻结清单 |
+| 我这次改动破坏了什么 | `99-compat-and-migration.md` §1.2 的 L1 登记表 + §4 的 BCR 表 |
+| 已知缺陷、“这不是缺陷”的误判 | [`baseline/static-analysis.md`](docs/refactor/baseline/static-analysis.md)（D1-D9）、[`baseline/startup.md`](docs/refactor/baseline/startup.md)（O1-O7） |
+| 工具链 / 终端的坑、本地绿而 CI 红 | [`dev-notes.md`](docs/refactor/dev-notes.md) |
+| 测试怎么写、覆盖率怎么算 | [`03-engineering.md`](docs/refactor/03-engineering.md) §3.4 |
+| 参考实现（AstrBot）借鉴了哪个文件 | 各分册顶部的「参考实现：」行；需长期保留的调研结论进 `docs/research/` |
+| 上游改了什么、怎么同步回来 | `99-compat-and-migration.md` §5 |
+| 面向人的上手流程 | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+
 ## 目录约定
 
 ```
 lib/                    内核
   config/               配置加载（config.js 路径冻结）
   plugins/              插件加载与调度（loader.js 路径冻结）
-  pipeline/             [阶段 2] 消息流水线
-  message/              [阶段 4] 统一消息组件
-  compat/               [持续] 兼容适配层
+  pipeline/             [阶段 2 ✅] 消息流水线（Stage 链 + 调度器 + dispatch.js）
+  message/              [阶段 4 ✅] 统一消息组件、umo 会话键、组件渲染
+  adapter/              [阶段 4 ✅] 适配器注册表与能力表
+  events/ listener/     事件入口 → EventBus（lib/event-bus.js）
 plugins/                内置与第三方插件
-dashboard/              [阶段 6] WebUI（独立 package.json）
 tests/                  vitest
-  unit/ integration/ fixtures/
-docs/refactor/          改造规划与实践文档
-docs/research/          参考实现调研笔记
+  unit/ helpers/ fixtures/
+docs/refactor/          改造规划与实践文档（PLAN.md 是导航）
+  baseline/             阶段 0 的静态分析与启动基线（D1-D9 / O1-O7 在此）
+docs/research/          参考实现调研笔记（尚未创建，按需）
+dashboard/              [阶段 6] WebUI（尚未创建）
+lib/compat/             [持续] 兼容适配层（尚未创建——目前没有需要适配的旧 API）
 ```
 
 ## 上游同步
