@@ -7,11 +7,15 @@
 
 提供运维界面（状态、插件、配置、日志），并让 HTTP API 有稳定契约，供第三方与插件页面消费。
 
-> **状态（2026-09-24）：后端已完成；`dashboard/` 前端已委托给另一个 agent。**
+> **状态（2026-09-24）：后端与前端 v1 只读面板均已完成。**
 > §3.3 的安全四条（含两处偏离）、启动期就绪语义、五个接口（含 SSE 日志流）、
-> `docs/openapi.yaml` 契约与一致性测试均已落地并真机验证。
-> **接手前端请直接看 §7 的交接单**（范围、边界、起步步骤、已知坑、完成时要同步的文档）。
-> 阶段 5 遗留的「宿主配置 schema 化」（`config/host.schema.js`）与本节 v2 的配置编辑合并做（同一个同构校验器）。
+> `docs/openapi.yaml` 契约与一致性测试均已落地并真机验证；
+> `dashboard/` 前端（Vue 3 + Vite + Vuetify 3 + Pinia + vue-router）四个页面已落地，
+> 唯一那处后端改动（§7.3 第 5 条：静态资源挂载 + `skip_auth`）已合入并登记为 BCR-0002。
+> 剩下的是 **v2 配置编辑**（与阶段 5 遗留的宿主配置 schema 化一起做）与 v3 插件页面，
+> 见 §7.6。
+> 阶段 5 遗留的「宿主配置 schema 化」（`config/host.schema.js`）与本节 v2 的配置编辑
+> 合并做（同一个同构校验器）。
 
 ---
 
@@ -231,8 +235,105 @@
 | `lib/web/api/config.js` | 配置读写（阶段 5 的 schema 校验） |
 | `lib/web/api/logs.js` | SSE 日志流 |
 | `lib/web/security.js` | 令牌桶限流、body 大小上限、411 处理 |
-| `dashboard/` | 前端工程（独立 package.json） |
+| `dashboard/` | 前端工程（独立 `package.json`，见下） |
 | `docs/openapi.yaml` | API 契约 |
+
+> **落地情况（2026-09-24）：`dashboard/` 已落地。**
+>
+> 工程事实（`pnpm-workspace.yaml` 已把 `dashboard` 加进 `packages`）：
+>
+> | 项 | 值 |
+> |---|---|
+> | 栈 | Vue 3.5 + Vite 6 + Vuetify 3.7（MDI 图标）+ Pinia 2 + vue-router 4 |
+> | 路由 | **hash 模式**——宿主没给 `/dashboard` 注册 history 回退，见 §7.2 |
+> | API 客户端 | **手写** `fetch`（`dashboard/src/api/{client,types}.ts`），未引 `@hey-api/openapi-ts`（§7.3 第 3 条的依赖决策） |
+> | 页面 | `views/{StatusView,PluginsView,ConfigView,LogsView}.vue` 四个 |
+> | 产物 | `dashboard/dist/`（gitignore，不进仓库） |
+>
+> 三处实现上的取舍，都来自后端的既有约束：
+>
+> 1. **日志流用 `fetch` + `ReadableStream` 解析 SSE，不用 `EventSource`**——
+>    后者不支持自定义请求头，而令牌恰恰要放在头里。心跳（`: ping`）被当作
+>    「连接还活着」的唯一信号，连着超时就自动重连，界面上也显示心跳年龄。
+> 2. **配置页按 `redacted` 路径就地标注 `***`**，而不是只在页顶放一句说明——
+>    静默打码会让人以为配置本来就是 `***`。
+> 3. **插件列表不提供排序交互**，`priority: null` 显示为「未声明」——
+>    数组顺序就是执行顺序，界面重排会丢掉唯一的信息量。
+>
+> 后端唯一改动：`lib/web/server.js` 的 `mount()` 现在还会挂前端静态资源
+> （§7.3 第 5 条），并把 `/dashboard/assets` 追加进 `skip_auth`——
+> 这是阶段 6 唯一的鉴权放宽，已登记为 **BCR-0002**。
+> 未构建前端时只打一条 warn，**API 照常可用**。
+>
+> ⚠️ **这里比 §7.3 第 5 条多走了一步，值得单独说**：只把 `/dashboard/assets`
+> 放进 `skip_auth` 是不够的。真机第一次跑出来的是
+> **`/dashboard/` 401、只有 assets 200**——浏览器打开面板时**第一个请求就是 HTML
+> 文档本身**，它同样带不了自定义令牌头，所以面板压根打不开。
+> 而把整个 `/dashboard` 放进 `skip_auth` 又太宽（它是**前缀**匹配，
+> `/dashboard/anything` 都会免鉴权，而那是适配器可以注册路径的地方）。
+>
+> 最终做法：前端中间件**挂在根上、自己只认「入口文档」这一个形状**
+> （`GET/HEAD` 的 `/dashboard` 与 `/dashboard/`），其余一律 `next()` 交给
+> `serverAuth`；assets 仍走 `skip_auth` 前缀。因此中间件的顺序是
+> **`earlyProbe` → 前端 → `serverAuth`**，这一层未启用时是纯透传。
+>
+> 两个踩坑记录（都进了 `dev-notes.md` §10）：
+>
+> 1. `app.use("/dashboard", …)` 那一版在 `lib/bot.js` 里，因为
+>    **类字段初始化表达式的 TDZ**（在 `const app = Object.assign(…)` 自己的表达式里
+>    读 `app.skip_auth`）抛 `ReferenceError`，而这个异常被吞掉 →
+>    **整层从未注册**，`/dashboard/` 与 `/api/v1/*` 全部挂到客户端超时，
+>    而启动日志一切正常、单测也全绿（单测自己拼链，不覆盖真实字段初始化）。
+> 2. **`console.log` 写进被重定向的管道是块缓冲的**，进程活着时一条都读不到——
+>    于是「日志里没有我的调试输出」会被误读成「这行没执行」，我为此绕了很久。
+>    调试长跑宿主请用同步写 `process.stderr` 或走 `logger`。
+>
+> 验证（2026-09-24，全部为本次实跑输出）：
+>
+> ```
+> prettier --check .                → All matched files use Prettier code style!
+> eslint .                          → 0 问题
+> node scripts/typecheck.mjs        → 自有代码报错 0 处
+> vitest run                        → 37 个文件 / 617 个用例全绿
+>   （tests/unit/web/server.test.js 新增 7 条，其中两条直接盯这次真机跳出来的坑：
+>     `/dashboard/` 在接了真实鉴权的链路上必须 200；
+>     免鉴权只覆盖入口文档与 assets，`/dashboard/whatever` 仍要 401）
+> vue-tsc --noEmit                  → 0 错误
+> vite build                        → 289 模块，dist 约 700KB（CSS 356KB + JS 344KB）
+> ```
+>
+> **真机端到端**（临时改 `config/config/server.yaml` 启用面板并配临时令牌，
+> 验完已还原；宿主 PID 与被测进程核对过）：
+>
+> ```
+> GET /dashboard/                 → 200 text/html（免鉴权；文档里的 assets 引用也 200）
+> GET /dashboard                  → 301 → /dashboard/（express 挂载语义，浏览器自动跟随）
+> GET /dashboard/assets/index-*.js→ 200（免鉴权）
+> GET /dashboard/whatever         → 401（非入口仍然要令牌）
+> GET /api/v1/status  不带令牌     → 401
+> GET /api/v1/status  带令牌       → 200 {"version":"3.1.3","online":2,…}
+> GET /api/v1/nope                → 404（JSON，不是宿主的 302）
+> status  : version=3.1.3 online=2 uptime=7s rss=180.07MB
+>           插件 {"handlers":27,"loaded":27,"tasks":0} 适配器 7 账号 1
+> plugins : total=27，首条 botOperate [system/botOperate.js] priority=null
+> config  : files=9 summary={"files":2,"missing":2,"extra":1,"changed":2}
+> config/server.yaml: status=both redacted=["auth"]，user.auth="***"（整个值被遮）
+>                         user.port=2536（非密钥键没被误遮）
+> SSE     : 200 text/event-stream，带 no-transform；6 秒内收到 16 条事件
+> ```
+>
+> 驱动脚本在 `.git/`（临时产物，未提交）：`.git/TMP_e2e4.ps1` + `.git/TMP_e2e_driver.mjs`，
+> 共 17 项断言，全部通过。
+
+改动：
+
+| 文件 | 改动 |
+|---|---|
+| `lib/bot.js` | 引入 `lib/web/server.js`；在 `serverAuth` **之前**插入 `earlyProbe` 与前端中间件；**不改**现有路由与鉴权逻辑 |
+| `lib/config/log.js` | 抽出 `buildLogConfig()`（配置对象的**唯一**来源），供日志流追加 appender |
+| `config/default_config/server.yaml` | 新增 `server.webui.enable`（默认 `false`）、`server.address`；保持既有键不变 |
+| `eslint.config.js` | ignores 里加 `dashboard/dist/**`（压缩产物不该进 lint 闸门） |
+| `pnpm-workspace.yaml` | `packages` 加一项 `dashboard`（§7.3 第 1 条） |
 
 > **落地情况（2026-09-24）：本表的 `api/{router,status,plugins,config}.js` 与 `security.js` 已落地。**
 >
@@ -344,12 +445,22 @@
       （等 16 个心跳周期再断言没有新写入，而不是贴着周期断言：Windows 与 CI runner 的
       定时器粒度能到 10ms 以上）。真连接断开也走同一条清理路径
 - [x] 启动期（`stat.online !== 2`）访问 `/dashboard` 有明确提示，不出现无限转圈
-      —— 503 + `Retry-After` + 自动重试页（有单测）
+      —— 503 + `Retry-After` + 自动重试页（有单测）。**前端的另一半也已落地**：
+      `StatusView` 先打 `/api/v1/ready`、遇 503 每 2 秒重试并显示等待文案，
+      而不是给一个红色错误（真机首轮探测实测收到 503、第 4 秒转 200）
 - [ ] 敏感接口有 per-IP 限流，压测下返回 429 而非击穿
       —— 限流本身已落地且有 429 用例；v1 是只读面板，**敏感接口（重启/更新）还未出现**，
       届时在对应子路径上再叠一层更紧的桶
 - [x] 请求体超过上限返回 413，无 `Content-Length` 的 multipart 返回 411
       —— 两条都有真实 HTTP 用例
+- [x] 面板本身可打开、且不牺牲既有鉴权边界（阶段 6 新增的验收项）
+      —— 真机验证：`/dashboard/` 与 `/dashboard/assets/*` 免鉴权 200
+      （浏览器没法给文档/脚本带自定义头），`/dashboard/whatever` 仍 401；
+      未启用 WebUI 时 `skip_auth` 保持空数组、一条日志都不打
+- [x] 前端能对上真实响应体（v1 四个页面）
+      —— 真机取了 5 个接口的完整响应，逐字段核对（含 `redacted` 与 `***` 的形态、
+      SSE 帧字段、插件顺序与 `priority: null`）；见 §4 的真机验证块
+- [ ] **配置编辑（v2）**：表单由 schema 渲染 + 写入走同构校验器 —— 未开工，见 §7.6
 
 ---
 
@@ -366,21 +477,23 @@
 
 ---
 
-## 7. 前端交接说明（`dashboard/`）
+## 7. v1 只读面板：范围、边界与踩坑（`dashboard/`）
 
-> 本节是**交接单**：接手前端的 agent 按这里走即可，不必先读后端的实现细节。
+> **状态（2026-09-24）：本节已执行完毕，v1 四个页面落地。**
+> 本节保留为**范围与边界的权威说明**（后续 v2/v3 与维护时按这里的边界走），
+> 具体实现与验证证据见 §4 的落地情况块；未开工的部分见 §7.6。
 > **硬性规则与文档纪律在 `AGENTS.md`（必读）与 `dev-notes.md`。**
 
 ### 7.1 范围：v1 只读面板
 
 四个页面，数据全部来自已经稳定的 5 个接口（契约见 `docs/openapi.yaml`）：
 
-| 页面 | 数据源 |
-|---|---|
-| 状态总览 | `GET /api/v1/status`（`/ready` 作启动探针） |
-| 插件列表 | `GET /api/v1/plugins` |
-| 配置查看 | `GET /api/v1/config` 与 `GET /api/v1/config/{name}` |
-| 日志实时流 | `GET /api/v1/logs`（SSE） |
+| 页面 | 数据源 | 实现 |
+|---|---|---|
+| 状态总览 | `GET /api/v1/status`（`/ready` 作启动探针） | `views/StatusView.vue` |
+| 插件列表 | `GET /api/v1/plugins` | `views/PluginsView.vue` |
+| 配置查看 | `GET /api/v1/config` 与 `GET /api/v1/config/{name}` | `views/ConfigView.vue` |
+| 日志实时流 | `GET /api/v1/logs`（SSE） | `views/LogsView.vue` |
 
 除 7.3 第 5 条（静态资源挂载）外，**不需要后端改动**。
 
@@ -395,40 +508,59 @@
 | **要新字段先改契约** | `tests/unit/web/openapi.test.js` 会对真实响应体做双向比对，新字段不写进契约就会红——这是设计意图，不是障碍 |
 | **不新增依赖，除非直接解决当前问题** | `AGENTS.md` 规则 5 |
 
-### 7.3 起步步骤
+### 7.3 已执行的步骤（留作记录）
 
-1. `pnpm-workspace.yaml` 的 `packages` 加一项 `dashboard`（当前只有 `plugins/**`）。
+1. `pnpm-workspace.yaml` 的 `packages` 加一项 `dashboard`。
 2. `dashboard/package.json`：Vue 3 + Vite + Vuetify 3 + Pinia + vue-router；目录结构照 §3.4（与 AstrBot 同构）。
-3. 客户端：这 5 个 `GET` 很简，**手写完全可行**；要用 `@hey-api/openapi-ts` 从
-   `docs/openapi.yaml` 生成到 `dashboard/src/api/generated/` 再包一层手写外观（§3.2）也行。
-   **这是第一个需要走依赖决策的地方。**
-4. 联调：后端默认**要求鉴权头**且没有开 CORS。Vite dev server 用 `server.proxy` 转发到
-   `http://127.0.0.1:2536`，并在**代理里补上鉴权头**；代理要关掉 `/api/v1/logs` 的响应缓冲。
-5. **唯一的后端改动点**：SPA 静态资源要挂到 `/dashboard`。写在 `lib/web/server.js` 的
-   `mount()` 里（门卫已经保证"未启用/未配 auth 就不挂"），并把 `/dashboard/assets`
-   追加进 `Bot.express.skip_auth`——否则浏览器加载 `<script>` 也得带令牌，而 `<script>`
-   没法带头。这个取舍是**刻意的**（静态资源不含密钥，API 仍然要令牌），
-   请单独提交并在此表登记。
+   实际解析到的版本：Vue 3.5.43 / Vite 6.4.3 / Vuetify 3.13.5 / Pinia 2.3.1 / vue-router 4.6.4。
+3. **依赖决策：手写 API 客户端**（`dashboard/src/api/{client,types}.ts`），
+   没有引入 `@hey-api/openapi-ts`——v1 只有 5 个 `GET`，
+   而契约↔实现这一侧已经由 `tests/unit/web/openapi.test.js` 守着。
+   `types.ts` 是 `docs/openapi.yaml` 的手写镜像，**后端加字段要同步它**
+   （漏了不会让 CI 变红，只表现为"界面少了一列"）。
+4. 联调：Vite dev server（端口 5273）用 `server.proxy` 转发 `/api` 到
+   `http://127.0.0.1:2536`，**代理里不注入令牌**（由浏览器里的面板自己带着走），
+   并对 `text/event-stream` 关掉响应缓冲。
+5. **唯一的后端改动点**（已落地，见 §4）：前端挂到 `/dashboard`，
+   `/dashboard/assets` 追加进 `Bot.express.skip_auth`。
+   注意落地时比原计划多走了一步——**入口文档也必须免鉴权**（浏览器打开面板的
+   第一个请求就是 HTML 文档，它同样带不了自定义头），
+   详见 §4 落地情况块里的 ⚠️ 说明与 `dev-notes.md` §10。
 
-### 7.4 已知坑（后端踩过并留了用例的）
+### 7.4 已知坑（前后端都踩过并留了用例的）
 
 - **SSE 必须实时**：响应头已带 `Cache-Control: no-transform`（宿主的 `compression()` 会把小于
   阈值的分片攒在缓冲区里，而 SSE 全是小分片）。前端若套反向代理，也要关掉对
   `text/event-stream` 的缓冲。
 - **心跳是"连接还活着"的唯一信号**：每 15 秒一个 `: ping` 注释行；连着两个周期没收到就重连。
   连上会先收到最多 200 条回放（`?limit=` 可调）。
+- **日志流不能用 `EventSource`**：它不支持自定义请求头，而令牌恰恰要放在头里。
+  前端因此走 `fetch` + `ReadableStream` 手动解析 SSE 帧（`api/client.ts` 的 `streamLogs`）。
 - **配置值已经脱敏**：`***` 是后端遮的，`redacted` 给出被遮的路径。界面上要显式说明
   "部分密钥未展示"，否则用的人会以为配置本身就是 `***`。
+  ⚠️ 命中的键是**整个值**被替换：`server.auth` 是对象时，`user.auth` 直接是字符串 `"***"`，
+  不是 `{Authorization: "***"}`——界面按字符串渲染即可。
 - **`/config/{name}` 的 `{name}` 走白名单**（`^[\w.-]+\.ya?ml$`）：下拉选项只用后端清单里的
   文件名，不要自己拼路径。
 - **插件列表的顺序就是执行顺序**（按 `priority` 升序）：界面上不要再排序，那会丢掉唯一的信息量；
-  `priority` 可能是 `null`（插件没声明，实际顺序由数组下标表达）。
+  `priority` 可能是 `null`（插件没声明，实际顺序由数组下标表达），界面显式显示"未声明"。
 - **启动期**：`/dashboard` 会收到 `503`（带 `Retry-After: 2`）而不是"转圈"，前端据此做等待页。
-- 工具与环境相关的坑（终端、CI 与本地不一致等）见 `dev-notes.md`。
+- **`/dashboard`（不带斜杠）是 301** 到 `/dashboard/`，那是 express 的挂载语义，浏览器会自动跟随。
+- **入口文档免鉴权是必须的**：只放行 assets 会得到「HTML 401、脚本 200」的诡异组合（实测过）。
+- 工具与环境相关的坑（终端、CI 与本地不一致、类字段 TDZ、管道块缓冲）见 `dev-notes.md`。
 
-### 7.5 完成时要做的事
+### 7.5 接手时要同步的文档
 
 - 按 `AGENTS.md` 规则 8 同步：`PLAN.md` §9、本文件（§5 勾选 + 本节状态），
-  必要时 `99-compat-and-migration.md`；
-- 新增 `dashboard/README.md`：怎么装、怎么构建、怎么联调、怎么指向后端；
-- 若后端因此有改动（7.3 第 5 条），在 §4 的改动表里补一行。
+  必要时 `99-compat-and-migration.md`（本次的鉴权放宽已登记为 BCR-0002）；
+- `dashboard/README.md`：怎么装、怎么构建、怎么联调、怎么指向后端、有哪些已知约束；
+- 后端若有改动，在 §4 的改动表里补一行。
+
+### 7.6 还没做的（v2 / v3）
+
+| 项 | 内容 | 前置 |
+|---|---|---|
+| **v2 配置编辑** | 表单由 schema 渲染；写入前后走同一个同构校验器（阶段 1 的 `lib/plugins/schema.js`） | 阶段 1、5（含阶段 5 遗留的「宿主配置 schema 化」`config/host.schema.js`，与这里合并做） |
+| **v3 插件页面** | 插件自带 `pages/`，受限 iframe + 插件用 `Bot.express` 注册自有 API | 阶段 7（可选） |
+| 敏感接口的紧限流 | 重启/更新落地时，在对应子路径上再叠一层更紧的令牌桶 + 二次确认字段 | v2 |
+| 契约↔客户端闸门 | 引入 `@hey-api/openapi-ts` 后叠「生成 + `git diff --exit-code`」，与现有的契约↔服务端检查互补 | 前端需要生成客户端时 |

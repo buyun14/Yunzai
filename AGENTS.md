@@ -117,7 +117,7 @@ pnpm web             # 模板调试页（端口 8000，不是运维面板）
 | 测试怎么写、覆盖率怎么算 | [`03-engineering.md`](docs/refactor/03-engineering.md) §3.4 |
 | 参考实现（AstrBot）借鉴了哪个文件 | 各分册顶部的「参考实现：」行；需长期保留的调研结论进 `docs/research/` |
 | 上游改了什么、怎么同步回来 | `99-compat-and-migration.md` §5 |
-| 接手 WebUI 前端（`dashboard/`） | [`06-webui.md`](docs/refactor/06-webui.md) §7 的交接单（范围、边界、起步步骤、已知坑） |
+| 接手 WebUI 前端（`dashboard/`） | [`06-webui.md`](docs/refactor/06-webui.md) §7（范围、边界、已知坑、v2/v3 待办）+ [`dashboard/README.md`](dashboard/README.md)（装/构建/联调） |
 | 面向人的上手流程 | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 
 ## 目录约定
@@ -129,7 +129,7 @@ lib/                    内核
   pipeline/             [阶段 2 ✅] 消息流水线（Stage 链 + 调度器 + dispatch.js）
   message/              [阶段 4 ✅] 统一消息组件、umo 会话键、组件渲染
   adapter/              [阶段 4 ✅] 适配器注册表与能力表
-  web/                  [阶段 6 进行中] WebUI 的挂载门卫、安全中间件与 /api/v1
+  web/                  [阶段 6 ✅ v1] WebUI 的挂载门卫、安全中间件、/api/v1 与前端静态托管
   events/ listener/     事件入口 → EventBus（lib/event-bus.js）
 plugins/                内置与第三方插件
 tests/                  vitest
@@ -137,7 +137,10 @@ tests/                  vitest
 docs/refactor/          改造规划与实践文档（PLAN.md 是导航）
   baseline/             阶段 0 的静态分析与启动基线（D1-D9 / O1-O7 在此）
 docs/research/          参考实现调研笔记（尚未创建，按需）
-dashboard/              [阶段 6] WebUI 前端（**已委托给另一个 agent**，交接单见 06-webui.md §7）
+dashboard/              [阶段 6 ✅ v1] WebUI 前端（Vue 3 + Vite + Vuetify 3 + Pinia）
+                        装法/构建/联调见 dashboard/README.md；边界与踩坑见 06-webui.md §7；
+                        构建产物与 node_modules 都不进仓库——**它的依赖要单独装**
+                        （`pnpm -C dashboard install`），仓库根的 `pnpm install` 不管它
 lib/compat/             [持续] 兼容适配层（尚未创建——目前没有需要适配的旧 API）
 ```
 
