@@ -169,6 +169,41 @@ case "lifecycle":
 （`[Plugin] 使用新版消息流水线`、`[开始处理][完成N]`、`1609167206 => 1083460310 发送…`），
 与另一个机器人的行为无关；那几条额外入站消息也没有在本侧触发任何 `[开始处理]`。
 
+### O4：禁言检查在 OneBot v11 路径上是**死代码**（字段名从未被写入）
+
+`checkLimit`（及阶段 2 移植后的 `RateLimitCheckStage`）的第一条判断是：
+
+```js
+if (e.group && (e.group.mute_left > 0 ||
+    (e.group.all_muted && !e.group.is_admin && !e.group.is_owner))) return false
+```
+
+**两层证据**：
+
+1. **静态**：`mute_left` / `all_muted` 在整个 `lib/` 与 `plugins/` 里**只被读、从未被写**
+   （`grep` 全仓只有两处命中，都是读）。
+2. **动态**（更硬）：`event.group` 由适配器的 `pickGroup()` 构造为
+   `{...get_group_info 缓存, ...事件本身, group_id}`，于是直接问 SnowLuma 要真实响应：
+
+   | `checkLimit` 读的 | OneBot v11 实际返回的 |
+   |---|---|
+   | `e.group.mute_left` | **无此字段**；真数据是**成员**信息里的 `shut_up_timestamp` |
+   | `e.group.all_muted` | **无此字段**；真字段叫 `group_all_shut`（且位于 `get_group_info`） |
+   | `e.group.is_admin` / `is_owner` | **无此字段**；真数据是成员信息里的 `role` |
+
+**性质**：这是一条**历史契约**。`mute_left` / `all_muted` 是 oicq / icqq 时代群对象的字段名，
+换成 OneBot v11 适配器后没人跟着改，两个判断就都恒为 `false` 了。
+
+**实际影响**：**在群里禁言机器人并不能阻止它响应**——它会照常跑到插件里，
+只是在发送那一步被 QQ 拒绝。好消息是 `PreProcessStage` 的 `e.reply` 包装会
+捕获发送异常并记 `发送消息错误`、返回 `{ error: [...] }`，所以不会中断流程、不会崩，
+代价只是白跑一遍 + 一条错误日志。
+
+**归属与处理**：阶段 2 **不动它**（移植必须行为等价，顺手"修好"会让新旧两侧对比失真）。
+归口给**阶段 4（消息与适配器）**：那一阶段的产出正是"适配器能力表 + 规范化字段"，
+应当把"是否禁言"规范化为适配器无关的字段，而不是继续读一个只有旧适配器才有的名字。
+（同类问题还有 `is_admin` / `is_owner`，它们同样只出现在成员信息里。）
+
 ---
 
 ## 4. 未采集项与替代方案
