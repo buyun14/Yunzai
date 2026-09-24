@@ -128,6 +128,7 @@ lib/                    内核
   pipeline/             [阶段 2 ✅] 消息流水线（Stage 链 + 调度器 + dispatch.js）
   message/              [阶段 4 ✅] 统一消息组件、umo 会话键、组件渲染
   adapter/              [阶段 4 ✅] 适配器注册表与能力表
+  web/                  [阶段 6 进行中] WebUI 的挂载门卫、安全中间件与 /api/v1
   events/ listener/     事件入口 → EventBus（lib/event-bus.js）
 plugins/                内置与第三方插件
 tests/                  vitest

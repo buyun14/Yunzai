@@ -19,6 +19,7 @@ const CORE_MODULES = [
   "lib/event-bus.js",
   "lib/message/**/*.js",
   "lib/adapter/**/*.js",
+  "lib/web/**/*.js",
   "lib/config/version.js",
   "lib/config/backup.js",
   "lib/config/migrate.js",

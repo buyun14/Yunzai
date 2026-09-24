@@ -2,11 +2,23 @@
 url: http://localhost:2536
 # 服务器端口
 port: 2536
+# 监听地址；留空 = Node 默认（全部网卡）。
+# 本服务同时承担 /File 的对外图片地址与适配器回调，因此默认不动；
+# 只在确定不需要外部访问时改成 127.0.0.1
+address:
 # 服务器缺省跳转地址
 redirect: https://git.trss.me/Yunzai
 # 服务器鉴权
+# 键名 = 请求头名，值 = 该头应携带的令牌；任一键不匹配即 401。为空则**完全放行**
 auth:
 # Authorization: Bearer <access_token>
+
+# 运维面板（docs/refactor/06-webui.md）
+webui:
+  # 默认关闭（关闭时 /dashboard 与 /api/v1 不挂载，行为与改造前完全一致）
+  # 启用前必须先在上面配好 auth：auth 为空时会**拒绝挂载**并在启动日志里给出配置指引
+  enable: false
+
 https:
 # url: https://localhost:2537
 # port: 2537

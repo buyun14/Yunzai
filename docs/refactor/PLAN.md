@@ -186,8 +186,7 @@ flowchart TD
       **未完成两项**：① `sequelize` / `sqlite3` 的删除——按 BCR-0001 等两个发布版本，刻意挂起；
       ② §3.2 的宿主配置 schema 化（`config/host.schema.js`）——下游只有阶段 6 的 WebUI 表单，
       与阶段 6 一起做。见 `05-persistence-config.md` §6）
-- [ ] 阶段 6：WebUI（**下一站**；开工先看 `06-webui.md` §3.3——安全项必须与功能同期上线，
-      而 `config/default_config/server.yaml` 的 `auth` 默认是**空**的，此时 `serverAuth` 完全放行，
-      所以「启用 WebUI 就强制要求 `auth` 非空」是第一条硬约束。阶段 5 遗留的
-      「宿主配置 schema 化」可与本阶段合并做）
+- [ ] 阶段 6：WebUI（**进行中**：安全基座已落地——挂载门卫、`lib/web/security.js`、
+      启动期就绪探针、`server.yaml` 的 `webui.enable`（默认 `false`）；两处偏离已登记。
+      剩下只读 API、`docs/openapi.yaml` 契约与 `dashboard/` 前端，见 `06-webui.md` §5）
 - [ ] 阶段 7：AI 能力（按需）
