@@ -238,7 +238,7 @@ flowchart LR
 |---|---|---|
 | 0a | 手工事件 fixture + 事件/配置夹具（阶段 0 遗留的前置任务） | ✅ 已完成：`tests/fixtures/events/` 14 条样本 + `tests/helpers/{events,config}.js` |
 | 1 | 骨架落地（不接线）：`stage.js` / `stage-order.js` / `context.js` / `scheduler.js` | ✅ 已完成 |
-| 2 | 等价 Stage 实现（10 个） | ⬜ 未开始 |
+| 2 | 等价 Stage 实现（10 个） | 🚧 进行中：`NormalizeStage` 已落地（32 个用例），其余 9 个待做 |
 | 3 | 影子运行对比 | ⬜ 未开始（可直接调用新旧两套对比，**不需要 EventBus**） |
 | 4 | EventBus 落地 + 切换（`deal()` 改为入队） | ⬜ 未开始 |
 | 5 | 清理旧路径 | ⬜ 未开始 |
