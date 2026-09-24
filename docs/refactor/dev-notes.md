@@ -131,3 +131,58 @@ pnpm -C $dst lint; pnpm -C $dst lint:eslint; pnpm -C $dst typecheck; pnpm -C $ds
   就会**整体覆盖**默认的那个对象，不会逐键合并。新增子键时必须把这一点写进注释；
 - 还有一个坑：**裸 node 脚本里读 `cfg` 会在解析失败时炸** —— `getYaml` 的 catch 里用了
   全局 `Bot.makeLog`。想单独看配置就写最小脚本 + 直接 `YAML.parse`，或者干脆真启动一次。
+
+## 10. 类字段初始化里的 TDZ：异常被吞，整条 `.use` 链静默少挂一层
+
+**症状**：`/dashboard/` 与 `/api/v1/*` **全部挂起**到客户端超时（不是 4xx/5xx，是连响应头都没有），
+而启动日志一切正常（`WebUI 已挂载` 照打）。单测全绿——因为单测是**自己拼**中间件链的。
+
+**根因**是在**类字段初始化表达式**里引用了正在初始化的变量：
+
+```js
+express = (() => {
+  const app = Object.assign(express(), { skip_auth: [], quiet: [] })
+  return app.use(WebUI.frontend.bind(WebUI, { skipAuth: app.skip_auth })) // ← app 处于 TDZ
+})()
+```
+
+`app.skip_auth` 在 `const app = …` 的**同一个表达式**里求值 → `ReferenceError`；
+而这个异常在字段初始化里被**吞掉**，于是 `.use(...)` 那一层从未注册。
+请求走到那里没有下一层、也没有答复，只能挂到超时。
+
+**正确写法**是把 app 先赋给一个已初始化完的局部变量，再用它：
+
+```js
+const app = Object.assign(express(), { skip_auth: [], quiet: [] })
+app.use(WebUI.earlyProbe.bind(WebUI))
+app.use(WebUI.frontend({ skipAuth: app.skip_auth }))
+return app.use(/* 其余各层 */)
+```
+
+**排查这类问题的教训**（比坑本身值钱）：
+
+1. **单测拼链 ≠ 真实链**。`tests/` 里的 `hostApp()` 手工按顺序挂中间件，
+   所以它能绿；`lib/bot.js` 的真实字段初始化没被任何单测覆盖。
+   凡是"改 `lib/bot.js` 的中间件链"的改动，**必须真启一次**再收工。
+2. **`console.log` 写进被重定向的管道是块缓冲的**：进程还活着时一条都读不到，
+   于是「日志文件里没有我的调试输出」会被误读成「这行代码没执行」——
+   我为此绕了很久。调试长跑宿主请用**同步写 `process.stderr`**，或走 `logger`（它会 flush）。
+3. **看到"中间件没被调用"先怀疑注册**，而不是分发：express 5 不再暴露
+   `layer.regexp`，用 `stack[i].name` / `layer.path` 判断挂载情况更可靠；
+   直接 `layer.handle(fakeReq, fakeRes, next)` 手工调用**会绕过真实分发**，结论不可信。
+4. 验证宿主时**先确认端口空闲、再核对监听者 PID 就是本次启动的那个进程**：
+   `Bot.serverEADDRINUSE()` 会向占用者发 `/exit`，残留实例会让"改动没生效"的假象持续很久。
+
+## 11. `app.use("/前缀", handler)` 与挂在根上自己判断前缀
+
+WebUI 的前端中间件（`lib/web/server.js` 的 `mountFrontend`）最终是**挂在根上**、
+自己比对 `UI_PREFIX` 的，与 `earlyProbe` 同一个做法。两个原因：
+
+- 挂在 `/dashboard` 上时 `req.url` 会被 express 剥掉前缀，看起来更省事，
+  但**入口文档与 assets 的免鉴权判断必须发生在 `serverAuth` 之前**，
+  而"挂在哪个路径"与"放行哪一类请求"是两件独立的事；纠缠在一起会让
+  「只放行入口文档、不放行整个 `/dashboard`」这个安全边界难以表达；
+- 更重要的是：**`skip_auth` 是前缀匹配**（`serverAuth` 用 `originalUrl.startsWith`），
+  把 `/dashboard` 整个放进 `skip_auth` 会连适配器挂在它下面的路由一起免鉴权。
+  所以入口文档走"自己认形状"、assets 走 `skip_auth` 前缀，两者分开。
+

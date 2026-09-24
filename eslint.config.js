@@ -28,6 +28,10 @@ export default [
       "data/**",
       "temp/**",
       "coverage/**",
+      // 面板前端的构建产物：压缩过的 bundle，报出来的都是
+      // "window is not defined" 这类对生成代码无意义的规则命中
+      // （`.prettierignore` 里同样忽略它）
+      "dashboard/dist/**",
     ],
   },
   js.configs.recommended,
